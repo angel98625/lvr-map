@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>實價登錄地圖</title>
+<meta name="description" content="匯入篩選好的實價登錄 Excel，一次把所有地址標在地圖上，點選點位即可看到該筆的屋齡、面積、樓層等資料。">
+<link rel="stylesheet" href="lib/leaflet.css">
+<link rel="stylesheet" href="lib/MarkerCluster.css">
+<style>
+:root{
+  --paper:#eef1ec; --sheet:#fbfcf9; --ink:#1f2a24; --muted:#5d6b62; --rule:#cfd7cf;
+  --seal:#b3261e; --seal-soft:#f6e3e0; --ok:#2f6b45; --ok-soft:#e1efe5; --tag:#e7ece4;
+  --road:#c26a0a; --area:#7a857e;
+  --sans:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+  --mono:ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --paper:#151a17;--sheet:#1d2420;--ink:#e6ece7;--muted:#9aa89f;--rule:#34403a;--tag:#26302a;
+  --seal:#e8695d;--seal-soft:#3a2321;--ok:#7cc796;--ok-soft:#1f3326;--road:#e39a45;--area:#9aa89f;color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#151a17;--sheet:#1d2420;--ink:#e6ece7;--muted:#9aa89f;--rule:#34403a;--tag:#26302a;
+  --seal:#e8695d;--seal-soft:#3a2321;--ok:#7cc796;--ok-soft:#1f3326;--road:#e39a45;--area:#9aa89f;color-scheme:dark}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.6 var(--sans)}
+.app{display:grid;grid-template-columns:380px 1fr;height:100dvh}
+.panel{background:var(--sheet);border-right:1px solid var(--rule);display:flex;flex-direction:column;min-height:0}
+.head{padding:14px 16px 12px;border-bottom:2px solid var(--ink);display:flex;align-items:flex-end;justify-content:space-between;gap:10px}
+h1{margin:0;font:900 22px/1.2 var(--sans);letter-spacing:.04em}
+.head .sub{margin:2px 0 0;font-size:12.5px;color:var(--muted)}
+.home{font-size:13px;color:var(--ink);text-decoration:none;border:1px solid var(--rule);padding:4px 10px;border-radius:999px;white-space:nowrap}
+.scroll{overflow-y:auto;padding:14px 16px 20px;display:grid;gap:14px;align-content:start;flex:1;min-height:0}
+.step{display:grid;gap:8px}
+.step h2{margin:0;font:700 14px var(--sans);display:flex;gap:8px;align-items:center}
+.step h2 .n{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--ink);color:var(--sheet);font:700 12px var(--mono)}
+.drop{border:2px dashed var(--rule);border-radius:8px;padding:18px 12px;text-align:center;cursor:pointer;background:var(--paper);color:var(--muted);font-size:14px}
+.drop strong{color:var(--ink)}
+.drop.over{border-color:var(--seal);background:var(--seal-soft)}
+.drop input{display:none}
+label.f{display:grid;gap:3px;font-size:13px;color:var(--muted)}
+select,input[type=text]{font:14px var(--sans);color:var(--ink);background:var(--paper);border:1px solid var(--rule);border-radius:6px;padding:7px 9px;width:100%;min-width:0}
+.btn{font:700 14px var(--sans);border:1px solid var(--ink);background:var(--ink);color:var(--sheet);padding:9px 14px;border-radius:6px;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--rule);font-weight:500}
+.btn:disabled{opacity:.45;cursor:default}
+.btn.sm{font-size:12.5px;padding:4px 9px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.hint{font-size:12.5px;color:var(--muted);margin:0}
+.bar{height:8px;background:var(--tag);border-radius:99px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--ok);transition:width .3s}
+.stats{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:13px}
+.stats b{font-family:var(--mono)}
+.legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--muted)}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:-1px}
+.tabs{display:flex;gap:4px;flex-wrap:wrap}
+.tab{font:500 12.5px var(--sans);border:1px solid var(--rule);background:transparent;color:var(--ink);padding:3px 10px;border-radius:999px;cursor:pointer}
+.tab[aria-pressed=true]{background:var(--ink);color:var(--sheet);border-color:var(--ink)}
+.list{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.list li{border:1px solid var(--rule);border-radius:6px;padding:6px 9px;font-size:13px;display:grid;grid-template-columns:auto 1fr;gap:2px 8px;cursor:pointer;background:var(--sheet)}
+.list li:hover{border-color:var(--ink)}
+.list li .a{overflow-wrap:anywhere}
+.list li .m{grid-column:2;font-size:12px;color:var(--muted);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.list .more{font-size:12.5px;color:var(--muted);text-align:center;cursor:default;display:block;border-style:dashed}
+details{font-size:13px}
+details summary{cursor:pointer;color:var(--muted)}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;margin-top:6px;max-height:180px;overflow:auto}
+.cols label{display:flex;gap:5px;align-items:flex-start;font-size:12.5px;overflow-wrap:anywhere}
+.privacy{font-size:12px;color:var(--muted);border-top:1px solid var(--rule);padding-top:10px;margin:0}
+#map{height:100%;width:100%;background:#dfe5df}
+.mapwrap{position:relative;min-height:0;overflow:hidden}
+.banner{position:absolute;z-index:1000;left:50%;top:12px;transform:translateX(-50%);background:var(--ink);color:var(--sheet);padding:8px 14px;border-radius:8px;font-size:14px;display:none;gap:10px;align-items:center;box-shadow:0 4px 16px #0004;max-width:calc(100% - 32px)}
+.banner.on{display:flex}
+.banner button{font:inherit;font-size:13px;background:transparent;color:inherit;border:1px solid currentColor;border-radius:5px;padding:2px 8px;cursor:pointer}
+.placing #map{cursor:crosshair}
+
+/* markers */
+.pin{position:relative;width:24px;height:24px}
+.pin .c{width:24px;height:24px;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 4px #0006;display:grid;place-items:center;color:#fff;font:700 11px/1 var(--mono)}
+.pin.exact .c{background:#b3261e}
+.pin.road .c{background:#c26a0a}
+.pin.area .c{background:#7a857e;border-style:dashed}
+.pin.manual .c{background:#2f6b45}
+.pin .lb{position:absolute;left:50%;top:26px;transform:translateX(-50%);background:#fff;color:#1f2a24;border:1px solid #0003;border-radius:4px;padding:0 4px;font:600 11px/1.5 var(--sans);white-space:nowrap;box-shadow:0 1px 3px #0003}
+.marker-cluster{background:#1f2a2433;border-radius:50%}
+.marker-cluster div{width:30px;height:30px;margin:5px;border-radius:50%;background:#1f2a24;color:#fff;display:grid;place-items:center;font:700 12px var(--mono)}
+.marker-cluster span{line-height:1}
+
+/* popup */
+.leaflet-popup-content{margin:12px 14px;font:13px/1.5 var(--sans);color:#1f2a24;min-width:240px}
+.pp h3{margin:0 0 2px;font-size:14px;line-height:1.4}
+.pp .note{font-size:12px;margin:0 0 6px;color:#5d6b62}
+.pp .note.warn{color:#c26a0a}
+.pp .nav{display:flex;justify-content:space-between;align-items:center;margin:4px 0 6px;font-size:12px}
+.pp .nav button{font:inherit;border:1px solid #cfd7cf;background:#fff;border-radius:4px;padding:1px 8px;cursor:pointer}
+.pp table{border-collapse:collapse;width:100%}
+.pp th,.pp td{text-align:left;vertical-align:top;padding:3px 4px;border-top:1px solid #e3e8e3;font-size:12.5px}
+.pp th{color:#5d6b62;font-weight:500;white-space:nowrap;max-width:9em;overflow:hidden;text-overflow:ellipsis}
+.pp td{overflow-wrap:anywhere}
+.pp td small{color:#5d6b62}
+.pp .tbl{max-height:min(320px,45vh);overflow:auto}
+.pp .acts{display:flex;gap:10px;margin-top:8px;font-size:12px;flex-wrap:wrap}
+.pp .acts a,.pp .acts button{color:#b3261e;background:none;border:0;padding:0;font:inherit;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+
+:focus-visible{outline:3px solid var(--seal);outline-offset:2px}
+
+@media (max-width:760px){
+  .app{grid-template-columns:1fr;grid-template-rows:auto 1fr;height:100dvh}
+  .panel{border-right:0;border-bottom:1px solid var(--rule);max-height:52dvh}
+  .app.collapsed .panel .scroll{display:none}
+  .toggle-panel{display:inline-block!important}
+}
+.toggle-panel{display:none}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <aside class="panel">
+    <div class="head">
+      <div>
+        <h1>實價登錄地圖</h1>
+        <p class="sub">匯入 Excel，一次看所有物件位置</p>
+      </div>
+      <div class="row">
+        <button class="btn ghost sm toggle-panel" id="togglePanel" type="button">收合</button>
+      </div>
+    </div>
+    <div class="scroll">
+      <section class="step">
+        <h2><span class="n">1</span>選擇檔案</h2>
+        <label class="drop" id="drop">
+          <input type="file" id="file" accept=".xlsx,.xls,.csv,.ods">
+          <strong>點這裡選擇 Excel 檔</strong><br>或把檔案拖曳到這裡（支援 .xlsx .xls .csv）
+        </label>
+        <p class="hint" id="fileInfo"></p>
+      </section>
+
+      <section class="step" id="setup" hidden>
+        <h2><span class="n">2</span>確認欄位</h2>
+        <label class="f" id="sheetWrap">工作表<select id="sheet"></select></label>
+        <label class="f">地址在哪一欄（已自動判斷，不對可以改）<select id="addrCol"></select></label>
+        <label class="f">地址沒寫縣市時，自動補上<input type="text" id="cityPrefix" placeholder="例如：臺北市（地址已有縣市就留空）"></label>
+        <label class="f">點位旁邊要顯示哪一欄（選填）<select id="labelCol"></select></label>
+        <details>
+          <summary>點開點位時要顯示的欄位</summary>
+          <div class="row" style="margin-top:6px">
+            <button class="btn ghost sm" type="button" id="colsAll">全選</button>
+            <button class="btn ghost sm" type="button" id="colsNone">全不選</button>
+          </div>
+          <div class="cols" id="cols"></div>
+        </details>
+        <button class="btn" id="go" type="button">開始標到地圖上</button>
+      </section>
+
+      <section class="step" id="progress" hidden>
+        <h2><span class="n">3</span>定位結果</h2>
+        <div class="bar"><i id="barFill"></i></div>
+        <div class="stats" id="stats"></div>
+        <div class="legend">
+          <span><i class="dot" style="background:#b3261e"></i>門牌位置</span>
+          <span><i class="dot" style="background:#c26a0a"></i>路段大約位置</span>
+          <span><i class="dot" style="background:#7a857e"></i>行政區中心</span>
+          <span><i class="dot" style="background:#2f6b45"></i>手動指定</span>
+        </div>
+        <div class="tabs" id="tabs">
+          <button class="tab" data-f="all" aria-pressed="true" type="button">全部</button>
+          <button class="tab" data-f="fail" aria-pressed="false" type="button">找不到</button>
+          <button class="tab" data-f="rough" aria-pressed="false" type="button">大約位置</button>
+        </div>
+        <ul class="list" id="list"></ul>
+        <div class="row">
+          <button class="btn ghost sm" type="button" id="export">下載含座標的 Excel</button>
+          <button class="btn ghost sm" type="button" id="retry">重試找不到的</button>
+        </div>
+      </section>
+
+      <p class="privacy">檔案只在你的瀏覽器裡讀取，不會上傳。只有「地址文字」會送去免費的地圖定位服務（Esri、OpenStreetMap）查座標，查過的地址會記在這台裝置上，下次不用重查。<button class="btn ghost sm" type="button" id="clearCache" style="margin-top:6px">清除已記住的位置</button></p>
+    </div>
+  </aside>
+  <div class="mapwrap" id="mapwrap">
+    <div id="map"></div>
+    <div class="banner" id="banner"><span id="bannerText"></span><button type="button" id="cancelPlace">取消</button></div>
+  </div>
+</div>
+
+<script src="lib/leaflet.js"></script>
+<script src="lib/leaflet.markercluster.js"></script>
+<script src="lib/xlsx.full.min.js"></script>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* ---------- map ---------- */
+const map = L.map('map', {zoomControl: true}).setView([23.7, 120.95], 7);
+const base = {
+  '一般地圖（OpenStreetMap）': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '&copy; OpenStreetMap'}),
+  '臺灣通用電子地圖（國土測繪中心）': L.tileLayer('https://wmts.nlsc.gov.tw/wmts/EMAP/default/GoogleMapsCompatible/{z}/{y}/{x}', {maxZoom: 19, maxNativeZoom: 18, attribution: '國土測繪中心'}),
+  '空照圖（國土測繪中心）': L.tileLayer('https://wmts.nlsc.gov.tw/wmts/PHOTO2/default/GoogleMapsCompatible/{z}/{y}/{x}', {maxZoom: 20, maxNativeZoom: 19, attribution: '國土測繪中心'}),
+};
+const overlays = {
+  '地段界線（段籍圖）': L.tileLayer('https://wmts.nlsc.gov.tw/wmts/LANDSECT/default/GoogleMapsCompatible/{z}/{y}/{x}', {maxZoom: 20, maxNativeZoom: 19, opacity: .8, attribution: '國土測繪中心'}),
+};
+base['一般地圖（OpenStreetMap）'].addTo(map);
+L.control.layers(base, overlays, {collapsed: true}).addTo(map);
+const cluster = L.markerClusterGroup({maxClusterRadius: 40, showCoverageOnHover: false, spiderfyOnMaxZoom: true,
+  iconCreateFunction: c => {
+    const n = c.getAllChildMarkers().reduce((s, m) => s + m.options.count, 0);
+    return L.divIcon({html: '<div><span>' + n + '</span></div>', className: 'marker-cluster', iconSize: [40, 40]});
+  }});
+map.addLayer(cluster);
+
+/* ---------- state ---------- */
+const S = {wb: null, fileName: '', headers: [], rows: [], addrIdx: -1, labelIdx: -1, show: new Set(),
+  geo: new Map(), // norm address -> {status, lat, lng, lv, src, tried}
+  filter: 'all', placing: null, markers: new Map(), running: false};
+
+/* ---------- cache ---------- */
+const CKEY = 'lvrmap.geo.v1';
+let cache = {};
+try { cache = JSON.parse(localStorage.getItem(CKEY) || '{}') || {}; } catch (e) { cache = {}; }
+function saveCache() { try { localStorage.setItem(CKEY, JSON.stringify(cache)); } catch (e) {} }
+
+/* ---------- file reading ---------- */
+const drop = $('drop');
+['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) readFile(f); });
+$('file').addEventListener('change', e => { const f = e.target.files[0]; if (f) readFile(f); e.target.value = ''; });
+// allow dropping onto the whole page too
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTransfer && e.dataTransfer.files[0]; if (f) readFile(f); });
+
+async function readFile(f) {
+  $('fileInfo').textContent = '讀取中…';
+  try {
+    const buf = await f.arrayBuffer();
+    let wb;
+    if (/\.(csv|txt)$/i.test(f.name)) {
+      let text;
+      try { text = new TextDecoder('utf-8', {fatal: true}).decode(buf); }
+      catch (e) { text = new TextDecoder('big5').decode(buf); }
+      wb = XLSX.read(text.replace(/^﻿/, ''), {type: 'string', raw: true});
+    } else {
+      wb = XLSX.read(buf, {type: 'array'});
+    }
+    S.wb = wb; S.fileName = f.name;
+    const sel = $('sheet');
+    sel.innerHTML = wb.SheetNames.map((n, i) => `<option value="${i}">${esc(n)}</option>`).join('');
+    // pick the sheet with the most rows
+    let best = 0, bestN = -1;
+    wb.SheetNames.forEach((n, i) => { const r = XLSX.utils.decode_range(wb.Sheets[n]['!ref'] || 'A1'); const k = r.e.r - r.s.r; if (k > bestN) { bestN = k; best = i; } });
+    sel.value = best;
+    $('sheetWrap').hidden = wb.SheetNames.length < 2;
+    loadSheet(best);
+  } catch (err) {
+    console.error(err);
+    $('fileInfo').textContent = '讀不到這個檔案，請確認是 Excel 或 CSV 檔。';
+  }
+}
+$('sheet').addEventListener('change', e => loadSheet(+e.target.value));
+
+const ADDR_RE = /[路街道段巷弄號村里]/;
+function loadSheet(i) {
+  const ws = S.wb.Sheets[S.wb.SheetNames[i]];
+  let aoa = XLSX.utils.sheet_to_json(ws, {header: 1, raw: false, defval: '', blankrows: false});
+  aoa = aoa.map(r => r.map(v => String(v == null ? '' : v).trim()));
+  // header row: first row (in the first 15) with an address-like header, else the first row with 2+ cells
+  let h = -1;
+  for (let r = 0; r < Math.min(15, aoa.length); r++) if (aoa[r].some(c => /門牌|地址|address|坐落|座落|位置/i.test(c) && c.length < 30)) { h = r; break; }
+  if (h < 0) h = Math.max(0, aoa.findIndex(r => r.filter(Boolean).length >= 2));
+  const raw = aoa[h] || [];
+  const seen = {};
+  const width = Math.max(raw.length, ...aoa.slice(h + 1, h + 200).map(r => r.length));
+  const headers = [];
+  for (let c = 0; c < width; c++) {
+    let n = raw[c] || ('欄位' + (c + 1));
+    if (seen[n]) n = n + '(' + (++seen[n]) + ')'; else seen[n] = 1;
+    headers.push(n);
+  }
+  let body = aoa.slice(h + 1);
+  // 實價登錄開放資料第二列是英文欄名，略過
+  if (body.length && body[0].filter(Boolean).length > 2 && body[0].filter(c => /^[A-Za-z][A-Za-z0-9 \-'(),./]*$/.test(c)).length / body[0].filter(Boolean).length > .6) body = body.slice(1);
+  body = body.filter(r => r.some(Boolean)).map(r => { const o = r.slice(0, width); while (o.length < width) o.push(''); return o; });
+  S.headers = headers; S.rows = body.map((cells, k) => ({i: k, cells, key: null}));
+
+  // guess address column
+  let bestC = -1, bestScore = 0;
+  headers.forEach((hd, c) => {
+    let s = 0;
+    if (/門牌|地址|address/i.test(hd)) s += 3; else if (/坐落|座落|位置/.test(hd)) s += 2;
+    const sample = body.slice(0, 200).map(r => r[c]).filter(Boolean);
+    if (sample.length) s += 3 * sample.filter(v => ADDR_RE.test(v) && /[區鄉鎮市縣]/.test(v) && v.length >= 6).length / sample.length;
+    if (s > bestScore) { bestScore = s; bestC = c; }
+  });
+  S.addrIdx = bestC;
+  const opts = headers.map((hd, c) => `<option value="${c}">${esc(hd)}${body[0] && body[0][c] ? '（例：' + esc(body[0][c].slice(0, 18)) + '）' : ''}</option>`).join('');
+  $('addrCol').innerHTML = (bestC < 0 ? '<option value="-1">請選擇</option>' : '') + opts;
+  $('addrCol').value = bestC;
+  $('labelCol').innerHTML = '<option value="-1">不顯示</option>' + headers.map((hd, c) => `<option value="${c}">${esc(hd)}</option>`).join('');
+  $('labelCol').value = -1;
+  S.show = new Set(headers.map((_, c) => c));
+  $('cols').innerHTML = headers.map((hd, c) => `<label><input type="checkbox" data-c="${c}" checked>${esc(hd)}</label>`).join('');
+  $('fileInfo').textContent = `「${S.fileName}」共 ${body.length} 筆資料、${headers.length} 個欄位。`;
+  guessCity();
+  $('setup').hidden = false;
+}
+$('addrCol').addEventListener('change', guessCity);
+function guessCity() {
+  const c = +$('addrCol').value;
+  if (c < 0) return;
+  const vals = S.rows.slice(0, 200).map(r => r.cells[c]).filter(Boolean);
+  const without = vals.filter(v => !CITY_RE.test(toHalf(v).replace(/\s+/g, ''))).length;
+  $('cityPrefix').placeholder = without > vals.length / 2 ? '地址沒有縣市，請填，例如：臺北市' : '地址已有縣市，可留空';
+}
+$('cols').addEventListener('change', e => { const c = +e.target.dataset.c; e.target.checked ? S.show.add(c) : S.show.delete(c); });
+$('colsAll').onclick = () => { S.show = new Set(S.headers.map((_, c) => c)); $('cols').querySelectorAll('input').forEach(i => i.checked = true); };
+$('colsNone').onclick = () => { S.show = new Set(); $('cols').querySelectorAll('input').forEach(i => i.checked = false); };
+$('labelCol').addEventListener('change', e => { S.labelIdx = +e.target.value; if (S.rows.some(r => r.key)) drawMarkers(false); });
+
+/* ---------- address normalising ---------- */
+const CITY_RE = /^(臺北市|台北市|新北市|桃園市|臺中市|台中市|臺南市|台南市|高雄市|基隆市|新竹市|嘉義市|新竹縣|苗栗縣|彰化縣|南投縣|雲林縣|嘉義縣|屏東縣|宜蘭縣|花蓮縣|臺東縣|台東縣|澎湖縣|金門縣|連江縣)/;
+const CN = {'零':0,'〇':0,'一':1,'二':2,'兩':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9};
+function toHalf(s) { return s.replace(/[！-～]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)).replace(/　/g, ' '); }
+function cnNum(s) { // 二十三 -> 23 (for 巷/弄/號 written in Chinese)
+  if (/^\d+$/.test(s)) return s;
+  let n = 0, cur = 0;
+  for (const ch of s) {
+    if (ch in CN) cur = CN[ch];
+    else if (ch === '十') { n += (cur || 1) * 10; cur = 0; }
+    else if (ch === '百') { n += (cur || 1) * 100; cur = 0; }
+    else return s;
+  }
+  return String(n + cur);
+}
+function normalize(raw, prefix) {
+  let s = toHalf(String(raw)).replace(/\s+/g, '').replace(/[（(][^）)]*[）)]/g, '');
+  if (!s) return null;
+  if (prefix && !CITY_RE.test(s)) s = toHalf(prefix).replace(/\s+/g, '') + s;
+  s = s.replace(/台(北市|中市|南市|東縣)/, '臺$1');
+  const m = s.match(/^((?:..[市縣])?)(.{1,3}?[區鄉鎮市])(?![區鄉鎮市])/);
+  const area = m ? (m[1] + m[2]) : (s.match(CITY_RE) || [''])[0];
+  const district = m ? m[2] : '';
+  if (/地號/.test(s)) return {q: s, full: null, street: null, area, district, land: true};
+  // 巷/弄/號 in Chinese numerals -> digits
+  s = s.replace(/([零〇一二兩三四五六七八九十百]+)(巷|弄|號)/g, (_, n, u) => cnNum(n) + u);
+  // 實價登錄 masks numbers as ranges: 151~180號 -> middle number with the same parity as the start
+  s = s.replace(/(\d+)\s*[~～〜\-－至到]\s*(\d+)號/, (_, a, b) => {
+    a = +a; b = +b; if (b < a) [a, b] = [b, a];
+    let mid = Math.round((a + b) / 2); if ((mid - a) % 2) mid -= 1;
+    return mid + '號';
+  });
+  const hm = s.match(/^.*?\d+(?:之\d+)?號/);
+  const full = hm ? hm[0] : null;
+  let street = (full || s).replace(/\d+(?:之\d+)?號.*$/, '').replace(/(\d+[樓F層]|地下.*|[一二三四五六七八九十]+樓).*$/i, '');
+  if (!/[路街道段巷弄]/.test(street)) street = null;
+  return {q: full || street || area, full, street, area, district, land: false};
+}
+
+/* ---------- geocoders ---------- */
+const TW = (lat, lng) => lat > 21.5 && lat < 26.6 && lng > 118 && lng < 122.2;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+let arcgisOff = false, arcgisNetFails = 0;
+const ESRI_LV = {PointAddress: 'exact', Subaddress: 'exact', StreetAddress: 'exact', StreetAddressExt: 'exact', BuildingName: 'exact',
+  StreetName: 'road', StreetInt: 'road', StreetMidBlock: 'road', StreetBetween: 'road', DistanceMarker: 'road'};
+async function arcgis(text, district) {
+  if (arcgisOff) return null;
+  const u = 'https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&maxLocations=1&countryCode=TWN&outFields=Addr_type,Match_addr&SingleLine=' + encodeURIComponent(text);
+  let j;
+  try { const r = await fetch(u); j = await r.json(); arcgisNetFails = 0; }
+  catch (e) { if (++arcgisNetFails >= 3) arcgisOff = true; return null; }
+  if (j.error) { if ([498, 499, 403, 401].includes(j.error.code)) arcgisOff = true; return null; }
+  const c = j.candidates && j.candidates[0];
+  if (!c || c.score < 75 || !TW(c.location.y, c.location.x)) return null;
+  const ma = (c.attributes && c.attributes.Match_addr) || c.address || '';
+  // the match must be in the same district (when Esri answers in Chinese)
+  if (district && /[一-鿿]/.test(ma) && !ma.replace(/台/g, '臺').includes(district.replace(/台/g, '臺'))) return null;
+  return {lat: c.location.y, lng: c.location.x, lv: ESRI_LV[c.attributes && c.attributes.Addr_type] || 'area', src: 'Esri'};
+}
+let nomiLast = 0;
+async function nominatim(text) {
+  const wait = nomiLast + 1100 - Date.now();
+  nomiLast = Date.now() + Math.max(0, wait);
+  if (wait > 0) await sleep(wait);
+  const u = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=tw&accept-language=zh-TW&q=' + encodeURIComponent(text);
+  try {
+    const r = await fetch(u); const j = await r.json();
+    const c = j && j[0]; if (!c) return null;
+    const lat = +c.lat, lng = +c.lon; if (!TW(lat, lng)) return null;
+    return {lat, lng, type: c.addresstype || c.type, src: 'OpenStreetMap'};
+  } catch (e) { return null; }
+}
+async function locate(n) {
+  if (!n.land) {
+    const r = await arcgis(n.full || n.street || n.area, n.district);
+    if (r && !(r.lv === 'area' && n.street)) return r;
+    if (n.full) { const o = await nominatim(n.full); if (o) return {...o, lv: /house|building/.test(o.type) ? 'exact' : 'road'}; }
+    if (n.street) {
+      const o = await nominatim(n.street.replace(/\d+巷.*$/, ''));
+      if (o) return {...o, lv: 'road'};
+    }
+    if (r) return r;
+  }
+  if (n.area) {
+    const r = await arcgis(n.area); if (r) return {...r, lv: 'area'};
+    const o = await nominatim(n.area); if (o) return {...o, lv: 'area'};
+  }
+  return null;
+}
+
+/* ---------- run ---------- */
+$('go').onclick = start;
+async function start() {
+  S.addrIdx = +$('addrCol').value;
+  if (S.addrIdx < 0) { alert('請先選擇地址在哪一欄'); return; }
+  S.labelIdx = +$('labelCol').value;
+  const prefix = $('cityPrefix').value.trim();
+  S.geo = new Map();
+  for (const r of S.rows) {
+    const n = normalize(r.cells[S.addrIdx], prefix);
+    r.key = n ? n.q + (n.land ? '#land' : '') : null;
+    r.norm = n;
+    if (r.key && !S.geo.has(r.key)) {
+      const c = cache[r.key];
+      S.geo.set(r.key, c ? {status: 'ok', ...c} : {status: 'wait', norm: n});
+    }
+  }
+  $('progress').hidden = false;
+  $('go').textContent = '重新標示';
+  if (window.matchMedia('(max-width:760px)').matches) { $('app').classList.add('collapsed'); $('togglePanel').textContent = '展開'; }
+  drawMarkers(true);
+  await runQueue();
+}
+async function runQueue() {
+  if (S.running) return;
+  S.running = true;
+  const todo = [...S.geo.entries()].filter(([, g]) => g.status === 'wait');
+  let lastDraw = Date.now();
+  const worker = async () => {
+    while (todo.length) {
+      const [key, g] = todo.shift();
+      g.status = 'busy';
+      const r = await locate(g.norm);
+      if (r) { Object.assign(g, {status: 'ok', lat: r.lat, lng: r.lng, lv: r.lv, src: r.src}); cache[key] = {lat: r.lat, lng: r.lng, lv: r.lv, src: r.src}; saveCache(); }
+      else g.status = 'fail';
+      updateStats();
+      if (Date.now() - lastDraw > 1500 && !(map._popup && map.hasLayer(map._popup))) { lastDraw = Date.now(); drawMarkers(false); }
+    }
+  };
+  updateStats();
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  S.running = false;
+  drawMarkers(true);
+}
+$('retry').onclick = () => { for (const g of S.geo.values()) if (g.status === 'fail') g.status = 'wait'; arcgisOff = false; arcgisNetFails = 0; runQueue(); };
+
+function rowState(r) { if (!r.key) return {status: 'fail', noaddr: true}; return S.geo.get(r.key) || {status: 'fail'}; }
+function updateStats() {
+  let ok = 0, fail = 0, rough = 0, wait = 0;
+  for (const r of S.rows) { const g = rowState(r); if (g.status === 'ok') { ok++; if (g.lv === 'road' || g.lv === 'area') rough++; } else if (g.status === 'fail') fail++; else wait++; }
+  const done = S.rows.length - wait;
+  $('barFill').style.width = (S.rows.length ? 100 * done / S.rows.length : 0) + '%';
+  $('stats').innerHTML = `<span>已標上 <b>${ok}</b> 筆</span><span>其中大約位置 <b>${rough}</b></span><span style="color:var(--seal)">找不到 <b>${fail}</b></span>` + (wait ? `<span>查詢中… 剩 <b>${wait}</b></span>` : '');
+  renderList();
+}
+
+/* ---------- list ---------- */
+const LV_TXT = {exact: '門牌位置', road: '路段大約位置', area: '行政區中心（大約）', manual: '手動指定'};
+const LV_COLOR = {exact: '#b3261e', road: '#c26a0a', area: '#7a857e', manual: '#2f6b45'};
+$('tabs').addEventListener('click', e => { const b = e.target.closest('.tab'); if (!b) return; S.filter = b.dataset.f; $('tabs').querySelectorAll('.tab').forEach(t => t.setAttribute('aria-pressed', t === b)); renderList(); });
+let listTimer = 0;
+function renderList() {
+  clearTimeout(listTimer);
+  listTimer = setTimeout(() => {
+    const ul = $('list'); ul.innerHTML = '';
+    const frag = document.createDocumentFragment();
+    let shown = 0, total = 0;
+    for (const r of S.rows) {
+      const g = rowState(r);
+      if (S.filter === 'fail' && g.status !== 'fail') continue;
+      if (S.filter === 'rough' && !(g.status === 'ok' && (g.lv === 'road' || g.lv === 'area'))) continue;
+      total++;
+      if (shown >= 500) continue;
+      shown++;
+      const li = document.createElement('li');
+      const color = g.status === 'ok' ? LV_COLOR[g.lv] : (g.status === 'fail' ? 'transparent' : 'var(--rule)');
+      const st = g.status === 'ok' ? LV_TXT[g.lv] : g.status === 'fail' ? (g.noaddr ? '沒有地址' : '找不到位置') : '查詢中…';
+      const lab = S.labelIdx >= 0 && r.cells[S.labelIdx] ? `<span>${esc(S.headers[S.labelIdx])}：${esc(r.cells[S.labelIdx])}</span>` : '';
+      li.innerHTML = `<i class="dot" style="background:${color};${g.status === 'fail' ? 'border:2px solid var(--seal)' : ''};margin-top:5px"></i><span class="a">${esc(r.cells[S.addrIdx] || '（空白）')}</span><span class="m"><span>第 ${r.i + 1} 筆 · ${st}</span>${lab}${g.status === 'fail' && !g.noaddr ? '<button class="btn ghost sm" data-place>在地圖上點選位置</button>' : (g.status === 'ok' && (g.lv === 'road' || g.lv === 'area')) ? '<button class="btn ghost sm" data-place>手動修正位置</button>' : ''}</span>`;
+      li.dataset.i = r.i;
+      frag.appendChild(li);
+    }
+    if (total > shown) { const li = document.createElement('li'); li.className = 'more'; li.textContent = `還有 ${total - shown} 筆沒列出，請直接在地圖上看`; frag.appendChild(li); }
+    if (!total) { const li = document.createElement('li'); li.className = 'more'; li.textContent = S.filter === 'fail' ? '沒有找不到的地址 🎉' : '沒有資料'; frag.appendChild(li); }
+    ul.appendChild(frag);
+  }, 120);
+}
+$('list').addEventListener('click', e => {
+  const li = e.target.closest('li[data-i]'); if (!li) return;
+  const r = S.rows[+li.dataset.i];
+  if (e.target.closest('[data-place]')) { startPlacing(r.key, r.cells[S.addrIdx]); return; }
+  focusRow(r);
+});
+function focusRow(r) {
+  const g = rowState(r);
+  if (g.status !== 'ok') return;
+  const m = S.markers.get(gkey(g));
+  if (!m) return;
+  if (window.matchMedia('(max-width:760px)').matches) $('app').classList.add('collapsed'), $('togglePanel').textContent = '展開';
+  cluster.zoomToShowLayer(m, () => { m.openPopup(); renderPopup(m, m.options.rows.indexOf(r)); });
+}
+
+/* ---------- markers ---------- */
+const gkey = g => g.lat.toFixed(6) + ',' + g.lng.toFixed(6);
+function drawMarkers(fit) {
+  cluster.clearLayers(); S.markers.clear();
+  const groups = new Map();
+  for (const r of S.rows) {
+    const g = rowState(r); if (g.status !== 'ok') continue;
+    const k = gkey(g);
+    if (!groups.has(k)) groups.set(k, {g, rows: []});
+    groups.get(k).rows.push(r);
+  }
+  const ms = [];
+  for (const [k, {g, rows}] of groups) {
+    const lv = g.lv;
+    let label = '';
+    if (S.labelIdx >= 0) { const v = rows.map(r => r.cells[S.labelIdx]).filter(Boolean); label = v.length ? v[0] + (v.length > 1 ? ` 等${v.length}筆` : '') : ''; }
+    const html = `<div class="pin ${lv}"><div class="c">${rows.length > 1 ? rows.length : ''}</div>${label ? `<div class="lb">${esc(label)}</div>` : ''}</div>`;
+    const icon = L.divIcon({html, className: '', iconSize: [24, 24], iconAnchor: [12, 12], popupAnchor: [0, -10]});
+    const m = L.marker([g.lat, g.lng], {icon, count: rows.length, rows, geo: g, title: rows[0].cells[S.addrIdx]});
+    m.bindPopup('', {maxWidth: 360, minWidth: 260, autoPanPadding: [20, 20]});
+    m.on('popupopen', () => { if (!m._pp) renderPopup(m, 0); });
+    m.on('popupclose', () => { m._pp = false; });
+    S.markers.set(k, m); ms.push(m);
+  }
+  cluster.addLayers(ms);
+  if (fit && ms.length) map.fitBounds(L.featureGroup(ms).getBounds().pad(.15), {maxZoom: 17});
+}
+
+/* ---------- popup ---------- */
+function fmtVal(h, v) {
+  const n = parseFloat(String(v).replace(/,/g, ''));
+  const isNum = /^-?[\d,]+(\.\d+)?$/.test(String(v).trim());
+  let extra = '';
+  if (isNum && /單價/.test(h) && /平方公尺|㎡|m2/i.test(h)) extra = `≈ ${(n * 3.305785 / 10000).toFixed(2)} 萬/坪`;
+  else if (isNum && /平方公尺|㎡|m2/i.test(h)) extra = `≈ ${(n / 3.305785).toFixed(2)} 坪`;
+  else if (isNum && /總價/.test(h) && /元/.test(h) && !/萬/.test(h) && n >= 10000) extra = `≈ ${(n / 10000).toLocaleString('zh-TW', {maximumFractionDigits: 1})} 萬`;
+  else if (/建築完成|完工|竣工/.test(h)) { const a = age(v); if (a != null) extra = `屋齡約 ${a} 年`; }
+  return esc(v) + (extra ? ` <small>（${extra}）</small>` : '');
+}
+function age(v) {
+  const s = String(v).trim(); let y, mo = 1;
+  let m = s.match(/^(\d{2,3})(\d{2})(\d{2})$/); // 民國 0850312
+  if (m) { y = +m[1] + 1911; mo = +m[2]; }
+  else if ((m = s.match(/^(\d{2,4})[\/.\-年](\d{1,2})/))) { y = +m[1]; mo = +m[2]; if (y < 1000) y += 1911; }
+  else return null;
+  if (y < 1900 || y > 2100) return null;
+  const now = new Date(); const a = now.getFullYear() - y + (now.getMonth() + 1 - mo) / 12;
+  return a >= 0 ? a.toFixed(1) : null;
+}
+function renderPopup(m, idx) {
+  const rows = m.options.rows, g = m.options.geo;
+  idx = Math.max(0, Math.min(rows.length - 1, idx));
+  const r = rows[idx];
+  const addr = r.cells[S.addrIdx];
+  const lv = g.lv;
+  const ranged = /\d\s*[~～〜\-－至到]\s*\d+號/.test(toHalf(String(addr)));
+  const note = lv === 'exact' ? (ranged ? '實價登錄門牌是區間，點位標在區間中間的門牌' : '') : lv === 'manual' ? '位置為你手動指定' : lv === 'road' ? '找不到確切門牌，標在路段附近' : '只找到行政區，點位是區中心，非實際位置';
+  const tr = S.headers.map((h, c) => (S.show.has(c) && c !== S.addrIdx && r.cells[c] !== '') ? `<tr><th title="${esc(h)}">${esc(h)}</th><td>${fmtVal(h, r.cells[c])}</td></tr>` : '').join('');
+  const html = `<div class="pp">
+    <h3>${esc(addr)}</h3>
+    ${note ? `<p class="note ${lv === 'manual' ? '' : 'warn'}">${note}</p>` : ''}
+    ${rows.length > 1 ? `<div class="nav"><button type="button" data-d="-1">‹ 上一筆</button><span>這個位置共 ${rows.length} 筆 · 第 ${idx + 1} 筆（檔案第 ${r.i + 1} 筆）</span><button type="button" data-d="1">下一筆 ›</button></div>` : `<p class="note">檔案第 ${r.i + 1} 筆</p>`}
+    <div class="tbl"><table>${tr || '<tr><td>沒有勾選要顯示的欄位</td></tr>'}</table></div>
+    <div class="acts">
+      <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(r.norm ? (r.norm.full || r.norm.q) : addr)}" target="_blank" rel="noopener">在 Google 地圖開啟</a>
+      <button type="button" data-fix>位置不對？重新點選</button>
+    </div></div>`;
+  m._pp = true;
+  const p = m.getPopup(); p.setContent(html); p.update();
+  const el = p.getElement();
+  if (!el) return;
+  el.querySelectorAll('[data-d]').forEach(b => b.onclick = ev => { L.DomEvent.stop(ev); renderPopup(m, idx + +b.dataset.d < 0 ? rows.length - 1 : (idx + +b.dataset.d) % rows.length); });
+  el.querySelector('[data-fix]').onclick = ev => { L.DomEvent.stop(ev); map.closePopup(); startPlacing(r.key, addr); };
+}
+
+/* ---------- manual placing ---------- */
+function startPlacing(key, addr) {
+  S.placing = key;
+  $('bannerText').textContent = `請在地圖上點選「${addr}」的正確位置`;
+  $('banner').classList.add('on'); $('mapwrap').classList.add('placing');
+  if (window.matchMedia('(max-width:760px)').matches) { $('app').classList.add('collapsed'); $('togglePanel').textContent = '展開'; }
+}
+function stopPlacing() { S.placing = null; $('banner').classList.remove('on'); $('mapwrap').classList.remove('placing'); }
+$('cancelPlace').onclick = stopPlacing;
+document.addEventListener('keydown', e => { if (e.key === 'Escape') stopPlacing(); });
+map.on('click', e => {
+  if (!S.placing) return;
+  const key = S.placing; stopPlacing();
+  const v = {lat: e.latlng.lat, lng: e.latlng.lng, lv: 'manual', src: '手動'};
+  cache[key] = v; saveCache();
+  S.geo.set(key, {status: 'ok', ...v});
+  drawMarkers(false); updateStats();
+  const m = S.markers.get(gkey(v)); if (m) m.openPopup();
+});
+
+/* ---------- export / misc ---------- */
+$('export').onclick = () => {
+  const head = [...S.headers, '緯度', '經度', '定位結果'];
+  const out = [head, ...S.rows.map(r => { const g = rowState(r); return [...r.cells, g.status === 'ok' ? +g.lat.toFixed(6) : '', g.status === 'ok' ? +g.lng.toFixed(6) : '', g.status === 'ok' ? LV_TXT[g.lv] : '找不到']; })];
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(out), '含座標');
+  XLSX.writeFile(wb, S.fileName.replace(/\.[^.]+$/, '') + '_含座標.xlsx');
+};
+$('clearCache').onclick = () => { if (confirm('確定要清除這台裝置記住的所有地址位置（包含手動指定的）嗎？')) { cache = {}; saveCache(); alert('已清除'); } };
+$('togglePanel').onclick = () => { const c = $('app').classList.toggle('collapsed'); $('togglePanel').textContent = c ? '展開' : '收合'; setTimeout(() => map.invalidateSize(), 50); };
+new ResizeObserver(() => map.invalidateSize()).observe($('mapwrap'));
+</script>
+</body>
+</html>
