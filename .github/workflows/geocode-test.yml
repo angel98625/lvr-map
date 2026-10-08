@@ -6,9 +6,35 @@ on:
 jobs:
   t:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - run: |
-          for q in 臺北市大安區復興南路一段21號 臺北市大安區復興南路一段281號 臺北市萬華區西園路二段261巷 新北市板橋區文化路一段23巷 臺北市文山區羅斯福路六段100號 臺北市大安區忠孝東路四段101號 臺北市大安區安和路二段 臺北市大安區通化街171巷 桃園市中壢區中央西路二段41號 高雄市鼓山區美術東二路; do
-            echo "== $q"
-            curl -s -G "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates" --data-urlencode "SingleLine=$q" -d f=json -d maxLocations=1 -d countryCode=TWN -d outFields=Addr_type,Match_addr | python3 -c "import json,sys; j=json.load(sys.stdin); c=(j.get('candidates') or [{}])[0]; print(c.get('score'), c.get('location'), c.get('attributes'))"
-          done
+          cat > g.py <<'PY'
+          import json, gzip, urllib.request, urllib.parse, concurrent.futures as cf
+          base = "https://raw.githubusercontent.com/angel98625/lvr-map/price-data-dev/"
+          out = {}
+          for kind in ("sale", "rent", "park"):
+              d = json.loads(gzip.decompress(urllib.request.urlopen(base + f"A_{kind}.json.gz").read()))
+              for r in d["rows"]:
+                  dist = d["districts"][r[0]]
+                  if dist in ("大安區", "中山區") and r[17] >= 0:
+                      out[d["city"] + dist + d["geokeys"][r[17]]] = dist
+          print(len(out), "keys")
+          def q(item):
+              k, dist = item
+              u = "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&maxLocations=1&countryCode=TWN&outFields=Addr_type,Match_addr&SingleLine=" + urllib.parse.quote(k)
+              try:
+                  j = json.loads(urllib.request.urlopen(u, timeout=30).read())
+                  c = j["candidates"][0]
+                  return k, [c["score"], round(c["location"]["y"], 5), round(c["location"]["x"], 5), c["attributes"]["Addr_type"], c["attributes"]["Match_addr"]]
+              except Exception as e:
+                  return k, None
+          with cf.ThreadPoolExecutor(6) as ex:
+              res = dict(ex.map(q, out.items()))
+          json.dump(res, open("geo.json", "w"), ensure_ascii=False)
+          from collections import Counter
+          print(Counter((v[3] if v else None) for v in res.values()))
+          PY
+          python3 g.py
+          mkdir pub && mv geo.json pub/ && cd pub && git init -q -b geo-test && git add . && git -c user.name=bot -c user.email=bot@x commit -qm t && git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" geo-test

@@ -145,7 +145,7 @@ def read_csv(zf, name):
         return None, []
     header = [re.sub(r"[\s()（）]", "", h) for h in rows[0]]
     body = rows[1:]
-    if body and body[0] and body[0][0].lower().startswith("the "):  # 第二列是英文欄名
+    if body and body[0] and not any("\u4e00" <= ch <= "\u9fff" for ch in "".join(body[0])):  # 第二列是英文欄名
         body = body[1:]
     return header, body
 
