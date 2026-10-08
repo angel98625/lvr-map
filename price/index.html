@@ -682,6 +682,21 @@ function computeZones(rows) {
     if (r >= 0 && r !== a) { adj[a].add(r); adj[r].add(a); }
     if (d >= 0 && d !== a) { adj[a].add(d); adj[d].add(a); }
   }
+  // 資料稀疏時格子不會相連：讓每一群連到最近的另一群，直到全部連通（Borůvka）
+  const comp = nodes.map((_, i) => i);
+  const find = i => comp[i] === i ? i : (comp[i] = find(comp[i]));
+  for (const [i, set] of adj.entries()) for (const j of set) comp[find(i)] = find(j);
+  for (;;) {
+    const roots = new Set(nodes.map((_, i) => find(i)));
+    if (roots.size <= 1) break;
+    const best = new Map();
+    for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
+      const ri = find(i); if (ri === find(j)) continue;
+      const d = (nodes[i].x - nodes[j].x) ** 2 + (nodes[i].y - nodes[j].y) ** 2;
+      const b = best.get(ri); if (!b || d < b[0]) best.set(ri, [d, i, j]);
+    }
+    for (const [, [, i, j]] of best) { adj[i].add(j); adj[j].add(i); comp[find(i)] = find(j); }
+  }
   // 3. 由下而上合併：先把筆數太少的點併到最像的鄰居，再把行情差距小的相鄰區合併，最後處理太小的區
   const C = new Map();
   nodes.forEach((n, i) => C.set(i, {id: i, nodes: [n], units: n.units, med: quantile(n.units, .5), adj: new Set(adj[i])}));
