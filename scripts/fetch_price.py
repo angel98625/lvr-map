@@ -89,7 +89,7 @@ def roc_date(s):
         y, m, d = int(s[:-2]), int(s[-2:]), 1
     else:
         y, m, d = int(s[:-4]), int(s[-4:-2]), int(s[-2:])
-    if not (1 <= m <= 12):
+    if not (1 <= m <= 12) or not (1 <= y <= 200):
         return None
     d = min(max(d, 1), 28) if not (1 <= d <= 31) else d
     return (y + 1911) * 10000 + m * 100 + d
@@ -262,7 +262,7 @@ def convert(header, body, kind, dist_index, min_date):
         top = 1 if (floors and tfloor and max(floors) >= tfloor and tfloor > 1) else 0
 
         built = roc_date(g(row, "built"))
-        if built:
+        if built and built <= date:
             age = (dt.date(date // 10000, date // 100 % 100, 1) - dt.date(built // 10000, built // 100 % 100, 1)).days / 365.25
             age10 = max(0, round(age * 10))
         else:
@@ -320,6 +320,16 @@ def main():
                 if not header:
                     continue
                 recs = convert(header, body, kind, data[code]["dist"], min_date)
+                if code == "a" and label == "本期":  # 方便在執行紀錄裡檢查欄位對不對
+                    log(f"  [{kind}] 欄名：{header}")
+                    for r in body[:2]:
+                        log(f"  [{kind}] 原始：{r}")
+                    for r in recs[:3]:
+                        log(f"  [{kind}] 整理後：{r}")
+                    from collections import Counter
+                    log(f"  [{kind}] 型態×樓別：{sorted(Counter((r[2], r[3]) for r in recs).items())}")
+                    log(f"  [{kind}] 頂層 {sum(r[4] for r in recs)}、特殊 {sum(r[9] & 1 for r in recs)}、增建 {sum(r[9] & 2 > 0 for r in recs)}、有備註 {sum(r[9] & 4 > 0 for r in recs)}、車位未拆價 {sum(r[10] == 2 for r in recs)}")
+                    log(f"  [{kind}] 備註樣本：{[r[15] for r in recs if r[15]][:25]}")
                 store = data[code][kind]
                 for r in recs:
                     key = r[16] or f"{r[11]}|{r[1]}|{r[7]}"
