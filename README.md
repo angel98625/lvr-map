@@ -3,3 +3,11 @@
 網址：https://angel98625.github.io/lvr-map/
 
 匯入篩選好的實價登錄 Excel，一次把所有地址標在地圖上，點選點位即可看到該筆的屋齡、面積、樓層等資料。檔案只在瀏覽器裡讀取，不會上傳。
+
+## 實價登錄行情（/price/）
+
+網址：https://angel98625.github.io/lvr-map/price/
+
+選縣市、行政區、路名，再選一樓／樓上層 × 買賣／租金、建物型態、交易日期、屋齡、坪數、房數，並可排除頂層、特殊交易、增建等，馬上看到單價中位數、走勢圖、各區比較與成交明細。
+
+資料由 GitHub Actions（`.github/workflows/price-data.yml`）每月 2、12、22 日自動從內政部實價登錄網站下載最近 3 年資料，整理後放在 `price-data` 分支（每次覆蓋，不累積歷史）。想立刻更新：到 Actions → 實價登錄行情資料更新 → Run workflow。

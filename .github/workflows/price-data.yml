@@ -4,9 +4,6 @@ on:
   schedule:
     - cron: "30 2 2,12,22 * *"   # 內政部每月 1、11、21 日更新，隔天台灣時間 10:30 抓
   workflow_dispatch:
-  push:
-    branches: [claude/project-thread-1h5say]
-    paths: [scripts/fetch_price.py, .github/workflows/price-data.yml]
 
 permissions:
   contents: write
