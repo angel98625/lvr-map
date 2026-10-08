@@ -1,0 +1,34 @@
+name: 實價登錄行情資料更新
+
+on:
+  schedule:
+    - cron: "30 2 2,12,22 * *"   # 內政部每月 1、11、21 日更新，隔天台灣時間 10:30 抓
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: price-data
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 下載並整理實價登錄資料
+        run: OUT=out python scripts/fetch_price.py
+      - name: 發布到 price-data 分支（只保留最新一份，不讓網站越來越肥）
+        run: |
+          cd out
+          git init -q -b price-data
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -qm "實價登錄行情資料 $(TZ=Asia/Taipei date +%F)"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" price-data
