@@ -145,7 +145,7 @@ def read_csv(zf, name):
         return None, []
     header = [re.sub(r"[\s()（）]", "", h) for h in rows[0]]
     body = rows[1:]
-    if body and body[0] and body[0][0].lower().startswith("the "):  # 第二列是英文欄名
+    if body and body[0] and not any("\u4e00" <= ch <= "\u9fff" for ch in "".join(body[0])):  # 第二列是英文欄名
         body = body[1:]
     return header, body
 
@@ -183,6 +183,75 @@ def remark_flags(remark, rtype=""):
     return f
 
 
+CN_DIGIT = "〇一二三四五六七八九"
+
+
+def zone_name(urban, nonurban):
+    """都市土地使用分區 → 簡短名稱，例如 住三、住三之一、商二、住宅區、非都市：鄉村區。"""
+    t = (urban or "").replace("都市：", "").strip("。 ")
+    if t.startswith("其他:") or t.startswith("其他："):
+        t = t[3:]
+    if not t:
+        n = (nonurban or "").strip("。 ")
+        return f"非都市：{n}" if n else "未登記"
+    t = t.replace("參", "三").replace("肆", "四").replace("貳", "二").replace("壹", "一")
+    m = re.search(r"第([一二三四五六七八九\d])種?(之[一二三\d]|[-－]\d)?種?(住宅|商業|工業)區", t)
+    if m:
+        n = m.group(1)
+        n = CN_DIGIT[int(n)] if n.isdigit() else n
+        sub = m.group(2) or ""
+        if sub and sub[0] in "-－":
+            sub = "之" + sub[1:]
+        if sub and sub[1:].isdigit():
+            sub = "之" + CN_DIGIT[int(sub[1:])]
+        return f"{m.group(3)[0]}{n}{sub}"
+    simple = {"住": "住宅區", "商": "商業區", "工": "工業區", "農": "農業區", "其他": "其他"}
+    if t in simple:
+        return simple[t]
+    for k in ("住宅區", "商業區", "工業區", "農業區", "保護區", "風景區", "文教區", "機關用地", "學校用地", "公園用地", "道路用地", "市場用地", "特定專用區", "河川區", "保存區"):
+        if k in t:
+            return k
+    return re.split(r"[(（，。、]", t)[0][:10] or "其他"
+
+
+def cn_digits(s):
+    return re.sub(r"([〇零一二兩三四五六七八九十百]+)(巷|弄|號|之)", lambda m: str(cn_num(m.group(1).replace("兩", "二").replace("零", "")) or m.group(1)) + m.group(2), s)
+
+
+def geo_key(addr, dist):
+    """把地址歸到「路段＋巷」或「路段＋門牌（每 20 號一組）」，網頁拿來查座標，地址太散時才不會查太多次。"""
+    a = re.sub(r"\s+", "", addr)
+    i = a.find(dist) if dist else -1
+    if i >= 0:
+        a = a[i + len(dist):]
+    a = re.sub(r"^.{1,4}?[里村]", "", a) if re.match(r"^.{1,4}?[里村](.+[路街道])", a) else a
+    a = re.sub(r"^\d+鄰", "", a)
+    a = cn_digits(a)
+    m = re.match(r"(.+?(?:路|街|大道|道)(?:[一二三四五六七八九十]+段)?)(.*)$", a)
+    if not m:
+        return ""
+    road, rest = m.group(1), m.group(2)
+    lane = re.match(r"(\d+)巷", rest)
+    if lane:
+        return f"{road}{lane.group(1)}巷"
+    num = re.match(r"(\d+)(?:[~～\-至](\d+))?號", rest)
+    if num:
+        a1 = int(num.group(1))
+        a2 = int(num.group(2) or a1)
+        mid = (a1 + a2) // 2
+        b = max(1, round(mid / 20) * 20) | (a1 & 1)  # 保留單雙號（路的兩側）
+        return f"{road}{b}號"
+    return road
+
+
+PK_TYPES = ["坡道平面", "坡道機械", "升降平面", "升降機械", "塔式車位", "一樓平面", "其他"]
+
+
+def pk_type(t):
+    t = (t or "").strip()
+    return PK_TYPES.index(t) if t in PK_TYPES else len(PK_TYPES) - 1
+
+
 def type_code(t):
     for k, v in TYPES:
         if t.startswith(k):
@@ -190,11 +259,45 @@ def type_code(t):
     return 0
 
 
-SALE_FIELDS = ["區", "日期", "型態", "樓別", "頂層", "屋齡", "坪數", "總價", "單價", "備註旗標", "車位", "地址", "移轉層次", "總樓層", "房", "備註", "編號"]
-RENT_FIELDS = ["區", "日期", "型態", "樓別", "頂層", "屋齡", "坪數", "租金", "單價", "備註旗標", "車位", "地址", "租賃層次", "總樓層", "房", "備註", "編號", "出租型態"]
+def convert_park(header, body, bases, dist_index):
+    """車位：優先用 _a_park.csv 每個車位的價格；沒有這個檔時用主檔的車位總價 ÷ 車位數。"""
+    out = []
+    if header:
+        c = Cols(header)
+        I = {"id": c.idx("編號"), "type": c.idx("車位類別"), "price": c.idx("車位價格", "車位總價", "車位價"),
+             "area": c.idx("車位面積平方公尺", "車位面積"), "floor": c.idx("車位所在樓層", "車位樓層", "樓層")}
+        if I["id"] < 0 or I["price"] < 0:
+            log(f"  車位檔欄位不認得：{header}")
+            header = None
+        else:
+            for row in body:
+                g = lambda k: row[I[k]].strip() if 0 <= I[k] < len(row) else ""
+                b = bases.get(g("id"))
+                price = num(g("price"))
+                if not b or price <= 0:
+                    continue
+                out.append(park_rec(b["rec"], g("type"), price, num(g("area")), g("floor")))
+    if not header:
+        for b in bases.values():
+            if b["pkprice"] > 0 and b["npk"] >= 1:
+                n = b["npk"]
+                for _ in range(n):
+                    out.append(park_rec(b["rec"], b["pktype"], b["pkprice"] / n, b["pkarea"] / n, ""))
+    return out
 
 
-def convert(header, body, kind, dist_index, min_date):
+def park_rec(rec, ptype, price, area_m2, floor):
+    # 欄位跟買賣一樣排，網頁可以共用篩選：坪數＝車位面積、總價＝單價＝每個車位價格、車位欄＝車位類別
+    return [rec[0], rec[1], rec[2], 0, 0, rec[5], round(area_m2 * 0.3025 * 10), round(price), round(price), rec[9],
+            pk_type(ptype), rec[11], floor, rec[13], -1, rec[15], rec[16], rec[17], rec[18]]
+
+
+SALE_FIELDS = ["區", "日期", "型態", "樓別", "頂層", "屋齡", "坪數", "總價", "單價", "備註旗標", "車位", "地址", "移轉層次", "總樓層", "房", "備註", "編號", "使用分區", "座標組"]
+RENT_FIELDS = SALE_FIELDS + ["出租型態"]
+PARK_FIELDS = ["區", "日期", "型態", "樓別", "頂層", "屋齡", "車位坪數", "車位價格", "車位價格", "備註旗標", "車位類別", "地址", "車位樓層", "總樓層", "房", "備註", "編號", "使用分區", "座標組"]
+
+
+def convert(header, body, kind, dist_index, min_date, bases=None):
     c = Cols(header)
     I = {
         "dist": c.idx("鄉鎮市區"),
@@ -214,6 +317,9 @@ def convert(header, body, kind, dist_index, min_date):
         "remark": c.idx("備註"),
         "id": c.idx("編號"),
         "rtype": c.idx("出租型態"),
+        "zone_u": c.idx("都市土地使用分區"),
+        "zone_n": c.idx("非都市土地使用分區"),
+        "deal": c.idx("交易筆棟數", "租賃筆棟數"),
     }
     missing = [k for k in ("dist", "date", "floor", "btype", "area", "price") if I[k] < 0]
     if missing:
@@ -284,7 +390,11 @@ def convert(header, body, kind, dist_index, min_date):
             dist_index[dist], date, t, cat, top, age10, round(ping * 10), round(price_n), unit,
             remark_flags(remark, g(row, "rtype")), pk, g(row, "addr").translate(FULL), floor_txt, tfloor,
             int(rooms) if rooms.isdigit() else -1, remark[:80], g(row, "id"),
+            zone_name(g(row, "zone_u"), g(row, "zone_n")), geo_key(rec_addr := g(row, "addr").translate(FULL), dist),
         ]
+        if bases is not None and rec[16]:
+            npk = re.search(r"車位(\d+)", g(row, "deal"))
+            bases[rec[16]] = {"rec": rec, "pktype": g(row, "pktype"), "pkprice": pk_price, "pkarea": pk_area, "npk": int(npk.group(1)) if npk else 0}
         if kind == "rent":
             rec.append(g(row, "rtype"))
         out.append(rec)
@@ -313,7 +423,7 @@ def main():
     sources = [(s, f"{BASE}/DownloadSeason?season={s}&type=zip&fileName=lvr_landcsv.zip") for s in seasons(today, YEARS)]
     sources.append(("本期", f"{BASE}/Download?type=zip&fileName=lvr_landcsv.zip"))
 
-    data = {code: {"sale": {}, "rent": {}, "dist": {}} for code in CITIES}
+    data = {code: {"sale": {}, "rent": {}, "park": {}, "dist": {}} for code in CITIES}
     got = []
     for label, url in sources:
         log(f"下載 {label}：{url}")
@@ -321,12 +431,15 @@ def main():
         if not zf:
             continue
         got.append(label)
+        if label == "本期":
+            log(f"  壓縮檔內容（臺北市）：{[n for n in zf.namelist() if n.lower().startswith('a_')]}")
         for code in CITIES:
+            bases = {}
             for kind, suffix in (("sale", "a"), ("rent", "c")):
                 header, body = read_csv(zf, f"{code}_lvr_land_{suffix}.csv")
                 if not header:
                     continue
-                recs = convert(header, body, kind, data[code]["dist"], min_date)
+                recs = convert(header, body, kind, data[code]["dist"], min_date, bases if kind == "sale" else None)
                 if code == "a" and label == "本期":  # 方便在執行紀錄裡檢查欄位對不對
                     log(f"  [{kind}] 欄名：{header}")
                     for r in body[:2]:
@@ -341,7 +454,24 @@ def main():
                 for r in recs:
                     key = r[16] or f"{r[11]}|{r[1]}|{r[7]}"
                     store[key] = r
-        log(f"  完成 {label}，目前買賣 {sum(len(d['sale']) for d in data.values())} 筆、租賃 {sum(len(d['rent']) for d in data.values())} 筆")
+            ph, pb = read_csv(zf, f"{code}_lvr_land_a_park.csv")
+            precs = convert_park(ph, pb, bases, data[code]["dist"])
+            if code == "a" and label == "本期":
+                log(f"  [park] 欄名：{ph}")
+                for r in pb[:3]:
+                    log(f"  [park] 原始：{r}")
+                for r in precs[:3]:
+                    log(f"  [park] 整理後：{r}")
+                from collections import Counter
+                log(f"  [park] 類別：{sorted(Counter(r[10] for r in precs).items())}；使用分區（買賣）：{Counter(b['rec'][17] for b in bases.values()).most_common(15)}")
+                log(f"  [geo] 樣本：{[(b['rec'][11], b['rec'][18]) for b in list(bases.values())[:15]]}")
+                log(f"  [geo] 沒有座標組：{[b['rec'][11] for b in bases.values() if not b['rec'][18]][:15]}")
+            pstore = data[code]["park"]
+            seen = {}
+            for r in precs:  # 同一筆交易的第幾個車位，跨季檔案重複出現時會覆蓋而不是重複
+                k = seen[r[16]] = seen.get(r[16], -1) + 1
+                pstore[f"{r[16]}#{k}"] = r
+        log(f"  完成 {label}，目前買賣 {sum(len(d['sale']) for d in data.values())} 筆、租賃 {sum(len(d['rent']) for d in data.values())} 筆、車位 {sum(len(d['park']) for d in data.values())} 個")
 
     if not got:
         log("一個資料檔都沒下載到，停止。")
@@ -353,18 +483,23 @@ def main():
         d = data[code]
         dists = sorted(d["dist"], key=lambda k: d["dist"][k])
         counts = {}
-        for kind, fields in (("sale", SALE_FIELDS), ("rent", RENT_FIELDS)):
+        for kind, fields in (("sale", SALE_FIELDS), ("rent", RENT_FIELDS), ("park", PARK_FIELDS)):
             rows = sorted(d[kind].values(), key=lambda r: r[1])
+            zones, geos = {}, {}
             for r in rows:
                 r.pop(16)  # 編號只拿來去重
+                # 使用分區、座標組改成編號，檔案小很多
+                r[16] = zones.setdefault(r[16], len(zones))
+                r[17] = geos.setdefault(r[17], len(geos)) if r[17] else -1
             counts[kind] = len(rows)
             # 先 gzip 壓縮（約小 5 倍），網頁下載後在瀏覽器裡解壓
-            payload = json.dumps({"city": name, "fields": [f for f in fields if f != "編號"], "districts": dists, "rows": rows},
+            payload = json.dumps({"city": name, "fields": [f for f in fields if f != "編號"], "districts": dists,
+                                  "zones": list(zones), "geokeys": list(geos), "pkTypes": PK_TYPES, "rows": rows},
                                  ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             with open(os.path.join(OUT, f"{code.upper()}_{kind}.json.gz"), "wb") as fh:
                 fh.write(gzip.compress(payload, 9, mtime=0))
-        index["cities"].append({"code": code.upper(), "name": name, "sale": counts["sale"], "rent": counts["rent"]})
-        log(f"{name}：買賣 {counts['sale']}、租賃 {counts['rent']}")
+        index["cities"].append({"code": code.upper(), "name": name, "sale": counts["sale"], "rent": counts["rent"], "park": counts["park"]})
+        log(f"{name}：買賣 {counts['sale']}、租賃 {counts['rent']}、車位 {counts['park']}")
     with open(os.path.join(OUT, "index.json"), "w", encoding="utf-8") as fh:
         json.dump(index, fh, ensure_ascii=False, indent=1)
 
