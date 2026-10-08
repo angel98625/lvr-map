@@ -1,0 +1,14 @@
+name: geocode test (temporary)
+on:
+  push:
+    branches: ["claude/**"]
+    paths: [.github/workflows/geocode-test.yml]
+jobs:
+  t:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          for q in 臺北市大安區復興南路一段21號 臺北市大安區復興南路一段281號 臺北市萬華區西園路二段261巷 新北市板橋區文化路一段23巷 臺北市文山區羅斯福路六段100號 臺北市大安區忠孝東路四段101號 臺北市大安區安和路二段 臺北市大安區通化街171巷 桃園市中壢區中央西路二段41號 高雄市鼓山區美術東二路; do
+            echo "== $q"
+            curl -s -G "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates" --data-urlencode "SingleLine=$q" -d f=json -d maxLocations=1 -d countryCode=TWN -d outFields=Addr_type,Match_addr | python3 -c "import json,sys; j=json.load(sys.stdin); c=(j.get('candidates') or [{}])[0]; print(c.get('score'), c.get('location'), c.get('attributes'))"
+          done
