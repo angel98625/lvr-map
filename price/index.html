@@ -606,7 +606,9 @@ async function esri(q, district) {
   const at = (c.attributes && c.attributes.Addr_type) || '';
   if (!GOOD_TYPES.test(at)) return 0;
   const ma = ((c.attributes && c.attributes.Match_addr) || c.address || '').replace(/台/g, '臺');
-  if (/[一-鿿]/.test(ma) && !ma.includes(district.replace(/台/g, '臺'))) return 0;
+  // 回傳的地址如果寫了別的行政區就不要（有些結果沒寫行政區，就接受）
+  const md = ma.match(/[市縣](.{1,3}?[區鄉鎮市])/);
+  if (md && md[1] !== district.replace(/台/g, '臺')) return 0;
   return [+c.location.y.toFixed(5), +c.location.x.toFixed(5)];
 }
 
@@ -671,13 +673,14 @@ function computeZones(rows) {
     return;
   }
   nodes.forEach((n, i) => { n.i = i; n.units.sort((a, b) => a - b); });
-  // 2. 鄰居：每個點連到最近 8 個、600 公尺內的點
+  // 2. 網格：每格歸給 280 公尺內最近的成交點；兩個點的格子相連才算鄰居，這樣併出來的區在地圖上一定是連成一塊的
+  const G = buildGrid(nodes);
   const N = nodes.length, adj = nodes.map(() => new Set());
-  for (let i = 0; i < N; i++) {
-    const d = [];
-    for (let j = 0; j < N; j++) if (j !== i) { const dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y; d.push([dx * dx + dy * dy, j]); }
-    d.sort((a, b) => a[0] - b[0]);
-    d.slice(0, 8).forEach(([dd, j], k) => { if (dd < 600 * 600 || (k === 0 && dd < 2000 * 2000)) { adj[i].add(j); adj[j].add(i); } });
+  for (let gy = 0; gy < G.rowsN; gy++) for (let gx = 0; gx < G.cols; gx++) {
+    const a = G.grid[gy * G.cols + gx]; if (a < 0) continue;
+    const r = gx + 1 < G.cols ? G.grid[gy * G.cols + gx + 1] : -1, d = gy + 1 < G.rowsN ? G.grid[(gy + 1) * G.cols + gx] : -1;
+    if (r >= 0 && r !== a) { adj[a].add(r); adj[r].add(a); }
+    if (d >= 0 && d !== a) { adj[a].add(d); adj[d].add(a); }
   }
   // 3. 由下而上合併：先把筆數太少的點併到最像的鄰居，再把行情差距小的相鄰區合併，最後處理太小的區
   const C = new Map();
@@ -719,7 +722,8 @@ function computeZones(rows) {
     const qs = new Set(); c.nodes.forEach(n => n.qs.forEach(q => qs.add(q)));
     return {label: zoneName(i) + '區', nodes: c.nodes, med: c.med, q1: quantile(c.units, .25), q3: quantile(c.units, .75), n: c.units.length, roads: top.join('、') + (roads.size > 3 ? ' 等' : ''), qs};
   });
-  ZONES = {zones, miss, located};
+  zones.forEach((z, zi) => z.nodes.forEach(n => { n.z = zi; }));
+  ZONES = {zones, miss, located, G, nodes};
   if (SEL) { // 篩選條件改變後，原本選的區用新的分區結果重新對應（重疊最多的那一區）
     let best = null, bo = 0;
     for (const z of zones) { let o = 0; for (const q of z.qs) if (SEL.keys.has(q)) o++; if (o > bo) { bo = o; best = z; } }
@@ -728,6 +732,27 @@ function computeZones(rows) {
   $('zstatus').textContent = `分成 ${zones.length} 區（${fmt(located)} ${isPark() ? '個車位' : '筆'}${miss ? `；另有 ${fmt(miss)} 筆地址定位不到，不在地圖上` : ''}）。`;
   drawZones();
   update(true);
+}
+function buildGrid(nodes) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const n of nodes) { minX = Math.min(minX, n.x); maxX = Math.max(maxX, n.x); minY = Math.min(minY, n.y); maxY = Math.max(maxY, n.y); }
+  const R = 280; minX -= R; minY -= R; maxX += R; maxY += R;
+  const cell = Math.max(35, Math.sqrt((maxX - minX) * (maxY - minY) / 15000));
+  const cols = Math.ceil((maxX - minX) / cell), rowsN = Math.ceil((maxY - minY) / cell);
+  const bucket = new Map(), B = R;
+  nodes.forEach((n, i) => { const k = Math.floor(n.x / B) + ',' + Math.floor(n.y / B); if (!bucket.has(k)) bucket.set(k, []); bucket.get(k).push(i); });
+  const grid = new Int32Array(cols * rowsN).fill(-1);
+  for (let gy = 0; gy < rowsN; gy++) for (let gx = 0; gx < cols; gx++) {
+    const cx = minX + (gx + .5) * cell, cy = minY + (gy + .5) * cell;
+    const bx = Math.floor(cx / B), by = Math.floor(cy / B);
+    let best = -1, bd = R * R;
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+      const arr = bucket.get((bx + dx) + ',' + (by + dy)); if (!arr) continue;
+      for (const i of arr) { const n = nodes[i], d = (n.x - cx) ** 2 + (n.y - cy) ** 2; if (d < bd) { bd = d; best = i; } }
+    }
+    grid[gy * cols + gx] = best;
+  }
+  return {grid, cols, rowsN, minX, minY, cell};
 }
 const zoneName = i => i < 26 ? String.fromCharCode(65 + i) : String.fromCharCode(65 + Math.floor(i / 26) - 1) + String.fromCharCode(65 + i % 26);
 
@@ -738,32 +763,15 @@ function drawZones() {
   if (!ZONES) { if (zLayer) zLayer.clearLayers(); $('zmap').style.display = 'none'; $('zwrap').style.display = 'none'; $('zlegend').innerHTML = ''; $('zclear').style.display = 'none'; return; }
   $('zmap').style.display = ''; $('zwrap').style.display = '';
   if (!map) {
-    map = L.map('zmap', {preferCanvas: true, zoomControl: true});
+    map = L.map('zmap', {preferCanvas: true, zoomControl: true, zoomSnap: 0.25});
     L.tileLayer('https://wmts.nlsc.gov.tw/wmts/EMAP/default/GoogleMapsCompatible/{z}/{y}/{x}', {maxZoom: 19, maxNativeZoom: 18, attribution: '國土測繪中心'}).addTo(map);
     zLayer = L.layerGroup().addTo(map);
   }
   zLayer.clearLayers();
   const {zones} = ZONES;
-  const nodes = []; zones.forEach((z, zi) => z.nodes.forEach(n => { n.z = zi; nodes.push(n); }));
-  // 網格：每格歸給 300 公尺內最近的成交點所屬的區
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const n of nodes) { minX = Math.min(minX, n.x); maxX = Math.max(maxX, n.x); minY = Math.min(minY, n.y); maxY = Math.max(maxY, n.y); }
-  const R = 280; minX -= R; minY -= R; maxX += R; maxY += R;
-  const cell = Math.max(60, Math.sqrt((maxX - minX) * (maxY - minY) / 6000));
-  const cols = Math.ceil((maxX - minX) / cell), rowsN = Math.ceil((maxY - minY) / cell);
-  const bucket = new Map(), B = R;
-  for (const n of nodes) { const k = Math.floor(n.x / B) + ',' + Math.floor(n.y / B); if (!bucket.has(k)) bucket.set(k, []); bucket.get(k).push(n); }
-  const grid = new Int32Array(cols * rowsN).fill(-1);
-  for (let gy = 0; gy < rowsN; gy++) for (let gx = 0; gx < cols; gx++) {
-    const cx = minX + (gx + .5) * cell, cy = minY + (gy + .5) * cell;
-    const bx = Math.floor(cx / B), by = Math.floor(cy / B);
-    let best = -1, bd = R * R;
-    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
-      const arr = bucket.get((bx + dx) + ',' + (by + dy)); if (!arr) continue;
-      for (const n of arr) { const d = (n.x - cx) ** 2 + (n.y - cy) ** 2; if (d < bd) { bd = d; best = n.z; } }
-    }
-    grid[gy * cols + gx] = best;
-  }
+  const {G} = ZONES, {cols, rowsN, minX, minY, cell} = G, maxX = minX + cols * cell, maxY = minY + rowsN * cell;
+  const nodes = ZONES.nodes;
+  const grid = G.grid.map(i => i < 0 ? -1 : nodes[i].z);
   const toLL = (x, y) => [y / 110700, x / 101800];
   const meds = zones.map(z => z.med).sort((a, b) => a - b);
   const rank = m => meds.length > 1 ? meds.indexOf(m) / (meds.length - 1) : .5;
@@ -777,7 +785,7 @@ function drawZones() {
       if (z >= 0) {
         const dim = selIdx >= 0 && z !== selIdx;
         L.rectangle([toLL(minX + gx * cell, minY + gy * cell), toLL(minX + (e + 1) * cell, minY + (gy + 1) * cell)],
-          {stroke: false, fillColor: rampColor(rank(zones[z].med)), fillOpacity: dim ? .15 : .55, interactive: true, zi: z}).on('click', () => selectZone(z)).addTo(zLayer);
+          {stroke: false, fillColor: rampColor(rank(zones[z].med)), fillOpacity: dim ? .25 : selIdx >= 0 ? .75 : .55, interactive: true, zi: z}).on('click', () => selectZone(z)).addTo(zLayer);
       }
       gx = e + 1;
     }
@@ -797,13 +805,16 @@ function drawZones() {
   if (selSegs.length) L.polyline(selSegs, {color: '#e8590c', weight: 3, opacity: 1, interactive: false}).addTo(zLayer);
   // 區名標籤：放在該區成交筆數最多的點
   zones.forEach((z, i) => {
-    const n = z.nodes.reduce((a, b) => b.units.length > a.units.length ? b : a);
+    // 標籤放在該區「最靠近重心的成交點」
+    let cx = 0, cy = 0, w = 0; for (const m of z.nodes) { cx += m.x * m.units.length; cy += m.y * m.units.length; w += m.units.length; }
+    cx /= w; cy /= w;
+    const n = z.nodes.reduce((a, b) => (b.x - cx) ** 2 + (b.y - cy) ** 2 < (a.x - cx) ** 2 + (a.y - cy) ** 2 ? b : a);
     L.marker([n.lat, n.lng], {icon: L.divIcon({className: '', html: `<div class="zlabel${i === selIdx ? ' on' : ''}">${z.label.replace('區', '')}<br>${unitTxt(z.med)}</div>`, iconSize: null}), zIndexOffset: i === selIdx ? 1000 : 0})
       .on('click', () => selectZone(i)).addTo(zLayer);
   });
   const fitKey = (S.city + (S.dists || []).join(',') + S.mode);
-  if (map._fitKey !== fitKey) { map.fitBounds([toLL(minX, minY), toLL(maxX, maxY)]); map._fitKey = fitKey; }
-  setTimeout(() => map.invalidateSize(), 0);
+  map.invalidateSize();
+  if (map._fitKey !== fitKey) { map.fitBounds([toLL(minX, minY), toLL(maxX, maxY)], {padding: [10, 10]}); map._fitKey = fitKey; }
   $('zlegend').innerHTML = `<span>行情低<span class="ramp" style="background:linear-gradient(90deg,${RAMP.join(',')})"></span>高（${unitLabel()}中位數，${unitName()}）</span><span>點區域可只看那一區</span>`;
   $('zclear').style.display = SEL ? '' : 'none';
   $('ztable').innerHTML = `<thead><tr><th class="l">區</th><th class="l">主要路段</th><th>${unitLabel()}中位數</th><th>中間一半</th><th>${isPark() ? '個' : '筆'}數</th></tr></thead><tbody>` +
