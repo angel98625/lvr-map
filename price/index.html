@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>實價登錄行情</title>
+<meta name="description" content="用內政部實價登錄資料，快速查一個區域的房價、租金行情：可選公寓／華廈／大樓、一樓或樓上層、交易日期、屋齡，並排除頂層與特殊交易。">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f4f3ef; --surface: #fcfcfb; --surface-2: #efeee9; --line: #dcdad3; --grid: #e6e4de;
+  --text: #0b0b0b; --text-2: #52514e; --text-3: #7a7974;
+  --accent: #2a78d6; --accent-ink: #1d5fae; --accent-soft: #e3eefb; --dot: #2a78d6;
+  --warn: #9a5b00;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #111110; --surface: #1a1a19; --surface-2: #242423; --line: #3a3936; --grid: #2c2c2a;
+    --text: #ffffff; --text-2: #c3c2b7; --text-3: #8f8e86;
+    --accent: #3987e5; --accent-ink: #8fbcf2; --accent-soft: #1d2a3a; --dot: #3987e5;
+    --warn: #e0a54a;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111110; --surface: #1a1a19; --surface-2: #242423; --line: #3a3936; --grid: #2c2c2a;
+  --text: #ffffff; --text-2: #c3c2b7; --text-3: #8f8e86;
+  --accent: #3987e5; --accent-ink: #8fbcf2; --accent-soft: #1d2a3a; --dot: #3987e5;
+  --warn: #e0a54a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif; }
+header { padding: 18px 16px 4px; max-width: 1180px; margin: 0 auto; }
+header h1 { margin: 0; font-size: 22px; }
+header p { margin: 4px 0 0; color: var(--text-2); font-size: 14px; }
+header a { color: var(--accent-ink); }
+main { max-width: 1180px; margin: 0 auto; padding: 12px 16px 40px; display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 860px) { main { grid-template-columns: minmax(0, 1fr); } }
+section { min-width: 0; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+aside.card { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow: auto; }
+@media (max-width: 860px) { aside.card { position: static; max-height: none; } }
+.grp { margin-bottom: 14px; }
+.grp > .lab { font-weight: 600; font-size: 13px; color: var(--text-2); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.grp > .lab button { font-size: 12px; }
+select, input[type=text], input[type=number], input[type=month] { width: 100%; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; min-height: 38px; }
+.row2 { display: grid; grid-template-columns: 1fr auto 1fr; gap: 6px; align-items: center; }
+.row2 span { color: var(--text-3); font-size: 13px; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.seg button, .chip { font: inherit; font-size: 14px; border: 1px solid var(--line); background: var(--surface); color: var(--text); border-radius: 8px; padding: 8px 6px; cursor: pointer; min-height: 38px; }
+.seg button[aria-pressed=true], .chip[aria-pressed=true] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { padding: 5px 10px; min-height: 32px; font-size: 13px; border-radius: 999px; }
+.chips.dists { max-height: 150px; overflow: auto; }
+.checks label { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; font-size: 14px; cursor: pointer; }
+.checks input { margin-top: 4px; }
+.checks small { color: var(--text-3); display: block; font-size: 12px; }
+.linkbtn { background: none; border: none; color: var(--accent-ink); cursor: pointer; font: inherit; padding: 0; }
+.btn { font: inherit; border: 1px solid var(--line); background: var(--surface); color: var(--text); border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+.btn.pri { background: var(--accent); border-color: var(--accent); color: #fff; }
+.quick { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.quick button { font-size: 12px; padding: 4px 8px; }
+section > .card + .card { margin-top: 16px; }
+h2 { font-size: 16px; margin: 0 0 4px; }
+.sub { color: var(--text-2); font-size: 13px; margin: 0 0 10px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.kpi { background: var(--surface-2); border-radius: 10px; padding: 10px 12px; }
+.kpi .k { color: var(--text-2); font-size: 12px; }
+.kpi .v { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.25; }
+.kpi .v small { font-size: 13px; font-weight: 500; color: var(--text-2); margin-left: 2px; }
+.kpi .n { color: var(--text-3); font-size: 12px; }
+.kpi.hero .v { color: var(--accent-ink); font-size: 30px; }
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { fill: var(--text-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.12); white-space: nowrap; display: none; z-index: 2; }
+.tip b { font-size: 14px; }
+.legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-2); margin-top: 6px; flex-wrap: wrap; }
+.legend i { display: inline-block; vertical-align: middle; margin-right: 5px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { padding: 7px 8px; border-bottom: 1px solid var(--grid); text-align: right; white-space: nowrap; }
+th { color: var(--text-2); font-weight: 600; position: sticky; top: 0; background: var(--surface); cursor: pointer; user-select: none; }
+th.l, td.l { text-align: left; }
+td.addr { white-space: normal; min-width: 180px; text-align: left; }
+td.rm { white-space: normal; min-width: 120px; color: var(--text-2); text-align: left; font-size: 12px; }
+.tablewrap { overflow: auto; max-height: 70vh; border: 1px solid var(--grid); border-radius: 8px; }
+.bar { display: inline-block; height: 10px; background: var(--accent); border-radius: 0 4px 4px 0; vertical-align: middle; }
+.empty { color: var(--text-2); padding: 30px 10px; text-align: center; }
+.status { color: var(--text-2); font-size: 13px; }
+.note { color: var(--text-3); font-size: 12px; margin-top: 10px; }
+.toolbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.pager { display: flex; gap: 6px; align-items: center; justify-content: center; margin-top: 10px; font-size: 13px; color: var(--text-2); }
+.warn { color: var(--warn); }
+#jump { display: none; }
+@media (max-width: 860px) { #jump { display: block; position: fixed; right: 16px; bottom: 16px; z-index: 3; box-shadow: 0 4px 14px rgba(0,0,0,.25); border-radius: 999px; padding: 10px 16px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>實價登錄行情</h1>
+  <p>資料來源：內政部不動產成交案件實際資訊（實價登錄），每 10 天自動更新。<span id="upd"></span> 想把結果標在地圖上，可下載 Excel 後匯入 <a href="../">實價登錄地圖</a>。</p>
+</header>
+<main>
+  <aside class="card" id="filters">
+    <div class="grp">
+      <div class="lab">縣市</div>
+      <select id="city"><option>載入中…</option></select>
+    </div>
+    <div class="grp">
+      <div class="lab">行政區 <button class="linkbtn" id="distAll" type="button">全選／全不選</button></div>
+      <div class="chips dists" id="dists"></div>
+    </div>
+    <div class="grp">
+      <div class="lab">路名或地址關鍵字</div>
+      <input type="text" id="kw" placeholder="例如：復興南路（可用空格分開多個，符合任一個）">
+    </div>
+    <div class="grp">
+      <div class="lab">要看什麼</div>
+      <div class="seg" id="mode">
+        <button type="button" data-m="s1">一樓買賣</button>
+        <button type="button" data-m="s2">樓上層買賣</button>
+        <button type="button" data-m="r1">一樓租金</button>
+        <button type="button" data-m="r2">樓上層租金</button>
+      </div>
+    </div>
+    <div class="grp">
+      <div class="lab">建物型態</div>
+      <div class="chips" id="types">
+        <button type="button" class="chip" data-t="1">公寓</button>
+        <button type="button" class="chip" data-t="2">華廈</button>
+        <button type="button" class="chip" data-t="3">大樓</button>
+        <button type="button" class="chip" data-t="4">套房</button>
+        <button type="button" class="chip" data-t="5">透天厝</button>
+      </div>
+    </div>
+    <div class="grp">
+      <div class="lab">交易日期</div>
+      <div class="row2"><input type="month" id="d1"><span>到</span><input type="month" id="d2"></div>
+      <div class="quick" id="quickD">
+        <button class="btn" type="button" data-y="0.5">近半年</button>
+        <button class="btn" type="button" data-y="1">近 1 年</button>
+        <button class="btn" type="button" data-y="2">近 2 年</button>
+        <button class="btn" type="button" data-y="3">全部</button>
+      </div>
+    </div>
+    <div class="grp">
+      <div class="lab">屋齡（年）</div>
+      <div class="row2"><input type="number" id="a1" min="0" placeholder="不限" inputmode="numeric"><span>到</span><input type="number" id="a2" min="0" placeholder="不限" inputmode="numeric"></div>
+    </div>
+    <div class="grp">
+      <div class="lab">坪數（扣除車位）</div>
+      <div class="row2"><input type="number" id="p1" min="0" placeholder="不限" inputmode="decimal"><span>到</span><input type="number" id="p2" min="0" placeholder="不限" inputmode="decimal"></div>
+    </div>
+    <div class="grp">
+      <div class="lab">房數</div>
+      <select id="rooms"><option value="">不限</option><option value="0">開放格局（0 房）</option><option value="1">1 房</option><option value="2">2 房</option><option value="3">3 房</option><option value="4">4 房以上</option></select>
+    </div>
+    <div class="grp checks">
+      <div class="lab">排除</div>
+      <label><input type="checkbox" id="xTop" checked><span>頂層<small>移轉樓層等於總樓層</small></span></label>
+      <label><input type="checkbox" id="xSpecial" checked><span>特殊交易<small>備註寫到親友、員工、急買急賣、瑕疵、債權債務、法拍、持分等</small></span></label>
+      <label><input type="checkbox" id="xAddon" checked><span>含增建、頂樓加蓋或未登記建物</span></label>
+      <label><input type="checkbox" id="xPk"><span>有車位但車位沒有分開標價<small>這種單價會偏高，勾選就不算進來</small></span></label>
+      <label><input type="checkbox" id="xRemark"><span>所有有備註的交易<small>最嚴格，筆數會少很多</small></span></label>
+      <label id="xShareL"><input type="checkbox" id="xShare" checked><span>分租、只租部分範圍、多人共同承租<small>只影響租金，這類單價會失真</small></span></label>
+    </div>
+    <button class="btn" type="button" id="reset">回到預設條件</button>
+  </aside>
+
+  <section>
+    <div class="card">
+      <h2 id="title">行情摘要</h2>
+      <p class="sub" id="desc"></p>
+      <div class="kpis" id="kpis"><div class="status">資料載入中…</div></div>
+    </div>
+    <div class="card">
+      <h2 id="chartTitle">單價走勢</h2>
+      <p class="sub" id="chartSub">每個點是一筆交易，線是每期的中位數。</p>
+      <div class="chart" id="chart"></div>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div class="card">
+      <h2>各行政區比較</h2>
+      <p class="sub">同樣的條件，各區的單價中位數。點區名可以只看那一區。</p>
+      <div class="tablewrap" style="max-height:none"><table id="distTable"></table></div>
+    </div>
+    <div class="card">
+      <div class="toolbar">
+        <div><h2 style="margin:0">成交明細</h2><span class="sub" id="detailSub"></span></div>
+        <button class="btn" type="button" id="dl">下載 Excel（CSV）</button>
+      </div>
+      <div class="tablewrap"><table id="detail"></table></div>
+      <div class="pager" id="pager"></div>
+      <p class="note">單價＝（總價－車位價格）÷（建物面積－車位面積），1 坪＝3.3058 平方公尺。屋齡以交易日減建築完成年月計算。資料以內政部公告為準。</p>
+    </div>
+  </section>
+</main>
+<div class="tip" id="tip"></div>
+<button class="btn pri" type="button" id="jump">看結果 ↓</button>
+
+<script>
+const DATA_BASE = new URLSearchParams(location.search).get('data') || 'https://raw.githubusercontent.com/angel98625/lvr-map/price-data/';
+const TYPE_NAME = {1: '公寓', 2: '華廈', 3: '大樓', 4: '套房', 5: '透天厝'};
+const F = {dist: 0, date: 1, type: 2, cat: 3, top: 4, age: 5, ping: 6, price: 7, unit: 8, flags: 9, pk: 10, addr: 11, floor: 12, tfloor: 13, rooms: 14, remark: 15, rtype: 16};
+const DEFAULTS = {city: 'A', dists: null, kw: '', mode: 's2', types: [1, 2, 3], d1: '', d2: '', a1: '', a2: '', p1: '', p2: '', rooms: '',
+  xTop: true, xSpecial: true, xAddon: true, xPk: false, xRemark: false, xShare: true};
+const $ = id => document.getElementById(id);
+const cache = {};
+let INDEX = null, S = null, DATA = null, ROWS = [], sortKey = 'date', sortDir = -1, page = 0;
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const isRent = () => S.mode[0] === 'r';
+const fmt = (n, d = 0) => n == null || isNaN(n) ? '–' : n.toLocaleString('zh-TW', {minimumFractionDigits: d, maximumFractionDigits: d});
+// 買賣：元/坪 → 萬/坪；租金：元/坪/月
+const unitTxt = u => isRent() ? fmt(u) : fmt(u / 10000, 1);
+const unitName = () => isRent() ? '元/坪/月' : '萬/坪';
+const priceTxt = p => isRent() ? fmt(p) + ' 元' : fmt(p / 10000) + ' 萬';
+const dateTxt = d => `${Math.floor(d / 10000) - 1911}/${String(Math.floor(d / 100) % 100).padStart(2, '0')}/${String(d % 100).padStart(2, '0')}`;
+const monthToInt = (s, end) => { if (!s) return null; const [y, m] = s.split('-').map(Number); return y * 10000 + m * 100 + (end ? 31 : 1); };
+const intToMonth = d => `${Math.floor(d / 10000)}-${String(Math.floor(d / 100) % 100).padStart(2, '0')}`;
+
+function quantile(sorted, q) {
+  if (!sorted.length) return null;
+  const pos = (sorted.length - 1) * q, lo = Math.floor(pos), hi = Math.ceil(pos);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+}
+
+// ---------- 狀態存在網址裡，可以加入書籤或傳給別人 ----------
+function loadState() {
+  const st = JSON.parse(JSON.stringify(DEFAULTS));
+  try {
+    const h = new URLSearchParams(location.hash.slice(1));
+    for (const [k, v] of h) {
+      if (!(k in st)) continue;
+      if (typeof st[k] === 'boolean') st[k] = v === '1';
+      else if (k === 'types') st[k] = v ? v.split(',').map(Number) : [];
+      else if (k === 'dists') st[k] = v ? v.split(',') : [];
+      else st[k] = v;
+    }
+  } catch (e) {}
+  return st;
+}
+function saveState() {
+  const h = new URLSearchParams();
+  for (const k in S) {
+    const v = S[k], d = DEFAULTS[k];
+    if (JSON.stringify(v) === JSON.stringify(d)) continue;
+    h.set(k, typeof v === 'boolean' ? (v ? '1' : '0') : Array.isArray(v) ? v.join(',') : v ?? '');
+  }
+  history.replaceState(null, '', '#' + h.toString());
+}
+
+function syncUI() {
+  $('city').value = S.city;
+  $('kw').value = S.kw;
+  document.querySelectorAll('#mode button').forEach(b => b.setAttribute('aria-pressed', b.dataset.m === S.mode));
+  document.querySelectorAll('#types .chip').forEach(b => b.setAttribute('aria-pressed', S.types.includes(+b.dataset.t)));
+  for (const k of ['d1', 'd2', 'a1', 'a2', 'p1', 'p2', 'rooms']) $(k).value = S[k];
+  for (const k of ['xTop', 'xSpecial', 'xAddon', 'xPk', 'xRemark', 'xShare']) $(k).checked = S[k];
+  $('xShareL').style.display = isRent() ? '' : 'none';
+  renderDists();
+}
+
+function renderDists() {
+  if (!DATA) { $('dists').innerHTML = ''; return; }
+  $('dists').innerHTML = DATA.districts.map(d => `<button type="button" class="chip" data-d="${esc(d)}" aria-pressed="${!S.dists || S.dists.includes(d)}">${esc(d)}</button>`).join('');
+}
+
+// ---------- 載入資料 ----------
+async function fetchJSON(name) {
+  const r = await fetch(DATA_BASE + name, {cache: 'no-cache'});
+  if (!r.ok) throw new Error(r.status);
+  if (!name.endsWith('.gz')) return r.json();
+  return new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).json();
+}
+async function loadCity() {
+  const key = `${S.city}_${isRent() ? 'rent' : 'sale'}`;
+  $('kpis').innerHTML = '<div class="status">資料載入中…（第一次開某個縣市要幾秒鐘）</div>';
+  try {
+    if (!cache[key]) cache[key] = await fetchJSON(key + '.json.gz');
+    DATA = cache[key];
+  } catch (e) {
+    DATA = null;
+    $('kpis').innerHTML = '<div class="status warn">資料下載失敗，請稍後重新整理頁面。</div>';
+    return;
+  }
+  if (S.dists) S.dists = S.dists.filter(d => DATA.districts.includes(d));
+  renderDists();
+  if (!S.d1 && !S.d2 && DATA.rows.length) { setRange(1, false); }
+  update();
+}
+
+function setRange(years, doUpdate = true) {
+  if (!DATA || !DATA.rows.length) return;
+  const last = DATA.rows[DATA.rows.length - 1][F.date];
+  const ly = Math.floor(last / 10000), lm = Math.floor(last / 100) % 100;
+  const months = Math.round(years * 12) - 1;
+  const t = ly * 12 + (lm - 1) - months;
+  S.d1 = years >= 3 ? '' : `${Math.floor(t / 12)}-${String(t % 12 + 1).padStart(2, '0')}`;
+  S.d2 = '';
+  $('d1').value = S.d1; $('d2').value = S.d2;
+  if (doUpdate) update();
+}
+
+// ---------- 篩選 ----------
+function filterRows() {
+  const rent = isRent(), cat = +S.mode[1];
+  const types = new Set(S.types);
+  const dset = S.dists ? new Set(S.dists.map(d => DATA.districts.indexOf(d))) : null;
+  const kws = S.kw.trim().split(/\s+/).filter(Boolean).map(k => k.replace(/台/g, '臺').replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)));
+  const d1 = monthToInt(S.d1), d2 = monthToInt(S.d2, true);
+  const a1 = S.a1 === '' ? null : +S.a1 * 10, a2 = S.a2 === '' ? null : +S.a2 * 10;
+  const p1 = S.p1 === '' ? null : +S.p1 * 10, p2 = S.p2 === '' ? null : +S.p2 * 10;
+  const rooms = S.rooms === '' ? null : +S.rooms;
+  return DATA.rows.filter(r => {
+    if (r[F.cat] !== cat) return false;
+    if (!types.has(r[F.type])) return false;
+    if (dset && !dset.has(r[F.dist])) return false;
+    if (d1 && r[F.date] < d1) return false;
+    if (d2 && r[F.date] > d2) return false;
+    if (a1 != null && (r[F.age] < 0 || r[F.age] < a1)) return false;
+    if (a2 != null && (r[F.age] < 0 || r[F.age] > a2 + 9)) return false;
+    if (p1 != null && r[F.ping] < p1) return false;
+    if (p2 != null && r[F.ping] > p2) return false;
+    if (rooms != null && (rooms >= 4 ? r[F.rooms] < 4 : r[F.rooms] !== rooms)) return false;
+    if (S.xTop && r[F.top]) return false;
+    const fl = r[F.flags];
+    if (S.xSpecial && (fl & 1)) return false;
+    if (S.xAddon && (fl & 2)) return false;
+    if (S.xRemark && (fl & 4)) return false;
+    if (S.xPk && r[F.pk] === 2) return false;
+    if (rent && S.xShare && (fl & 8)) return false;
+    if (kws.length) { const a = r[F.addr].replace(/台/g, '臺'); if (!kws.some(k => a.includes(k))) return false; }
+    return true;
+  });
+}
+
+function update() {
+  if (!DATA) return;
+  saveState();
+  ROWS = filterRows();
+  page = 0;
+  renderSummary();
+  renderChart();
+  renderDistTable();
+  renderDetail();
+}
+
+// ---------- 摘要 ----------
+function modeName() { return {s1: '一樓買賣', s2: '樓上層買賣', r1: '一樓租金', r2: '樓上層租金'}[S.mode]; }
+function rangeTxt() {
+  const rows = ROWS.length ? ROWS : DATA.rows;
+  if (!rows.length) return '';
+  const a = S.d1 ? S.d1.replace('-', '/') : intToMonth(rows[0][F.date]).replace('-', '/');
+  const b = S.d2 ? S.d2.replace('-', '/') : intToMonth(rows[rows.length - 1][F.date]).replace('-', '/');
+  return `${a} ～ ${b}`;
+}
+function renderSummary() {
+  const area = S.dists && S.dists.length < DATA.districts.length ? (S.dists.length <= 3 ? S.dists.join('、') : `${S.dists.length} 個行政區`) : '全區';
+  $('title').textContent = `${DATA.city}${area === '全區' ? '' : ' ' + area}・${modeName()}`;
+  $('desc').textContent = [S.types.map(t => TYPE_NAME[t]).join('／') || '（沒選建物型態）', rangeTxt(), S.kw.trim() ? `地址含「${S.kw.trim()}」` : ''].filter(Boolean).join('・');
+  if (!ROWS.length) { $('kpis').innerHTML = '<div class="empty">沒有符合條件的交易，試著放寬條件。</div>'; return; }
+  const u = ROWS.map(r => r[F.unit]).sort((a, b) => a - b);
+  const p = ROWS.map(r => r[F.price]).sort((a, b) => a - b);
+  const g = ROWS.map(r => r[F.ping]).sort((a, b) => a - b);
+  const ages = ROWS.map(r => r[F.age]).filter(a => a >= 0).sort((a, b) => a - b);
+  const few = ROWS.length < 5 ? '<div class="n warn">筆數很少，參考就好</div>' : '';
+  $('kpis').innerHTML = `
+    <div class="kpi hero"><div class="k">單價中位數</div><div class="v">${unitTxt(quantile(u, .5))}<small>${unitName()}</small></div>${few}</div>
+    <div class="kpi"><div class="k">中間一半落在</div><div class="v" style="font-size:19px">${unitTxt(quantile(u, .25))}～${unitTxt(quantile(u, .75))}</div><div class="n">${unitName()}（25%～75%）</div></div>
+    <div class="kpi"><div class="k">成交筆數</div><div class="v">${fmt(ROWS.length)}<small>筆</small></div></div>
+    <div class="kpi"><div class="k">${isRent() ? '月租金' : '總價'}中位數</div><div class="v">${isRent() ? fmt(quantile(p, .5)) : fmt(quantile(p, .5) / 10000)}<small>${isRent() ? '元' : '萬'}</small></div></div>
+    <div class="kpi"><div class="k">坪數中位數</div><div class="v">${fmt(quantile(g, .5) / 10, 1)}<small>坪</small></div></div>
+    <div class="kpi"><div class="k">屋齡中位數</div><div class="v">${ages.length ? fmt(quantile(ages, .5) / 10, 1) : '–'}<small>年</small></div></div>`;
+}
+
+// ---------- 走勢圖 ----------
+function periodKey(d, monthly) {
+  const y = Math.floor(d / 10000), m = Math.floor(d / 100) % 100;
+  return monthly ? y * 12 + m - 1 : y * 4 + Math.floor((m - 1) / 3);
+}
+function periodLabel(k, monthly) {
+  return monthly ? `${Math.floor(k / 12) - 1911}/${k % 12 + 1}` : `${Math.floor(k / 4) - 1911}Q${k % 4 + 1}`;
+}
+function renderChart() {
+  const el = $('chart');
+  $('chartTitle').textContent = `單價走勢（${unitName()}）`;
+  if (!ROWS.length) { el.innerHTML = '<div class="empty">沒有資料</div>'; $('legend').innerHTML = ''; return; }
+  const span = (Math.floor(ROWS[ROWS.length - 1][F.date] / 100) - Math.floor(ROWS[0][F.date] / 100));
+  const monthly = ROWS.length >= 40 && span <= 112; // 不到約一年半、資料夠多就按月，否則按季
+  const groups = new Map();
+  for (const r of ROWS) { const k = periodKey(r[F.date], monthly); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r[F.unit]); }
+  const ks = [...groups.keys()].sort((a, b) => a - b);
+  const k0 = ks[0], k1 = ks[ks.length - 1];
+  const med = ks.map(k => { const v = groups.get(k).sort((a, b) => a - b); return {k, m: quantile(v, .5), n: v.length}; });
+  $('chartSub').textContent = `每個點是一筆交易，線是每${monthly ? '月' : '季'}的中位數。`;
+
+  const W = Math.max(300, el.clientWidth || 700), H = W < 520 ? 240 : 300, L = 48, R = 12, T = 12, B = 30;
+  const all = ROWS.map(r => r[F.unit]).sort((a, b) => a - b);
+  let lo = quantile(all, .01), hi = quantile(all, .99);
+  const pad = (hi - lo) * .08 || hi * .1 || 1; lo = Math.max(0, lo - pad); hi = hi + pad;
+  const tick = niceStep((hi - lo) / 5);
+  lo = Math.floor(lo / tick) * tick; hi = Math.ceil(hi / tick) * tick;
+  const x = k => L + (k1 === k0 ? (W - L - R) / 2 : (k - k0) / (k1 - k0) * (W - L - R));
+  const y = v => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="單價走勢圖">`;
+  for (let v = lo; v <= hi + 1e-6; v += tick) s += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${unitTxt(v)}</text>`;
+  const every = Math.max(1, Math.ceil(ks.length / Math.floor((W - L - R) / 52)));
+  for (let k = k0; k <= k1; k++) if ((k - k0) % every === 0) s += `<text x="${x(k)}" y="${H - 8}" text-anchor="middle">${periodLabel(k, monthly)}</text>`;
+  // 個別交易點（太多時抽樣，避免手機卡頓）
+  const step = Math.max(1, Math.ceil(ROWS.length / 4000));
+  const half = (W - L - R) / Math.max(1, k1 - k0) * .38;
+  let dots = '';
+  for (let i = 0; i < ROWS.length; i += step) {
+    const r = ROWS[i], v = r[F.unit]; if (v < lo || v > hi) continue;
+    const k = periodKey(r[F.date], monthly);
+    const jitter = ((i * 9301 + 49297) % 233280) / 233280 - .5;
+    dots += `<circle cx="${(x(k) + jitter * half * (k1 === k0 ? 4 : 1)).toFixed(1)}" cy="${y(v).toFixed(1)}" r="2.6"/>`;
+  }
+  s += `<g fill="var(--dot)" fill-opacity="${ROWS.length > 1500 ? .12 : ROWS.length > 300 ? .2 : .35}">${dots}</g>`;
+  const pts = med.filter(d => d.m >= lo && d.m <= hi);
+  s += `<polyline fill="none" stroke="var(--accent-ink)" stroke-width="2.5" stroke-linejoin="round" points="${pts.map(d => `${x(d.k)},${y(d.m)}`).join(' ')}"/>`;
+  s += pts.map(d => `<circle cx="${x(d.k)}" cy="${y(d.m)}" r="4.5" fill="var(--accent-ink)" stroke="var(--surface)" stroke-width="2"/>`).join('');
+  s += `<line id="cross" x1="0" x2="0" y1="${T}" y2="${H - B}" stroke="var(--text-3)" stroke-dasharray="3 3" visibility="hidden"/>`;
+  s += `<rect x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent" id="hit"/></svg>`;
+  el.innerHTML = s;
+  $('legend').innerHTML = `<span><i style="width:16px;height:3px;background:var(--accent-ink)"></i>${monthly ? '每月' : '每季'}中位數</span><span><i style="width:7px;height:7px;border-radius:50%;background:var(--dot);opacity:.5"></i>單筆交易${step > 1 ? `（點太多，只畫約 1/${step}）` : ''}</span>`;
+  const hit = el.querySelector('#hit'), cross = el.querySelector('#cross'), tip = $('tip');
+  const move = ev => {
+    const box = el.querySelector('svg').getBoundingClientRect();
+    const px = (ev.clientX - box.left) * W / box.width;
+    let best = med[0]; for (const d of med) if (Math.abs(x(d.k) - px) < Math.abs(x(best.k) - px)) best = d;
+    cross.setAttribute('x1', x(best.k)); cross.setAttribute('x2', x(best.k)); cross.setAttribute('visibility', 'visible');
+    tip.innerHTML = `${periodLabel(best.k, monthly)}<br><b>${unitTxt(best.m)}</b> ${unitName()}<br>${best.n} 筆`;
+    tip.style.display = 'block';
+    const bx = box.left + window.scrollX + x(best.k) * box.width / W, by = box.top + window.scrollY + y(best.m) * box.height / H;
+    tip.style.left = Math.min(bx + 12, window.scrollX + document.documentElement.clientWidth - tip.offsetWidth - 8) + 'px';
+    tip.style.top = (by - tip.offsetHeight - 10) + 'px';
+  };
+  hit.addEventListener('pointermove', move); hit.addEventListener('pointerdown', move);
+  hit.addEventListener('pointerleave', () => { tip.style.display = 'none'; cross.setAttribute('visibility', 'hidden'); });
+}
+function niceStep(raw) {
+  const p = Math.pow(10, Math.floor(Math.log10(raw || 1))), f = raw / p;
+  return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * p;
+}
+
+// ---------- 各區比較 ----------
+function renderDistTable() {
+  // 同樣條件但不限行政區
+  const saved = S.dists; S.dists = null; const rows = filterRows(); S.dists = saved;
+  const by = new Map();
+  for (const r of rows) { if (!by.has(r[F.dist])) by.set(r[F.dist], []); by.get(r[F.dist]).push(r[F.unit]); }
+  const list = [...by].map(([d, v]) => { v.sort((a, b) => a - b); return {name: DATA.districts[d], m: quantile(v, .5), n: v.length}; }).sort((a, b) => b.m - a.m);
+  if (!list.length) { $('distTable').innerHTML = '<tr><td class="empty">沒有資料</td></tr>'; return; }
+  const max = list[0].m;
+  $('distTable').innerHTML = `<thead><tr><th class="l">行政區</th><th class="l" style="width:45%">單價中位數（${unitName()}）</th><th>筆數</th></tr></thead><tbody>` +
+    list.map(d => {
+      const on = !S.dists || S.dists.includes(d.name);
+      return `<tr style="${on ? '' : 'opacity:.45'}"><td class="l"><button class="linkbtn" data-only="${esc(d.name)}">${esc(d.name)}</button></td><td class="l"><span class="bar" style="width:${Math.max(2, d.m / max * 70)}%"></span> ${unitTxt(d.m)}${d.n < 5 ? ' <span class="warn" title="筆數少">*</span>' : ''}</td><td>${fmt(d.n)}</td></tr>`;
+    }).join('') + '</tbody>';
+}
+
+// ---------- 明細 ----------
+const COLS = [
+  {k: 'date', t: '交易日', l: true, v: r => r[F.date], f: r => dateTxt(r[F.date])},
+  {k: 'addr', t: '地址', l: true, v: r => r[F.addr], f: r => esc(r[F.addr]), c: 'addr'},
+  {k: 'type', t: '型態', l: true, v: r => r[F.type], f: r => TYPE_NAME[r[F.type]]},
+  {k: 'floor', t: '樓層', l: true, v: r => r[F.floor], f: r => esc(r[F.floor]) + (r[F.tfloor] ? ` / ${r[F.tfloor]}F` : '')},
+  {k: 'age', t: '屋齡', v: r => r[F.age], f: r => r[F.age] >= 0 ? fmt(r[F.age] / 10, 1) : '–'},
+  {k: 'ping', t: '坪數', v: r => r[F.ping], f: r => fmt(r[F.ping] / 10, 1)},
+  {k: 'rooms', t: '房', v: r => r[F.rooms], f: r => r[F.rooms] >= 0 ? r[F.rooms] : '–'},
+  {k: 'price', t: () => isRent() ? '月租金(元)' : '總價(萬)', v: r => r[F.price], f: r => isRent() ? fmt(r[F.price]) : fmt(r[F.price] / 10000)},
+  {k: 'unit', t: () => `單價(${unitName()})`, v: r => r[F.unit], f: r => `<b>${unitTxt(r[F.unit])}</b>`},
+  {k: 'pk', t: '車位', l: true, v: r => r[F.pk], f: r => ['', '有', '有(未拆價)'][r[F.pk]]},
+  {k: 'remark', t: '備註', l: true, v: r => r[F.remark] || (isRent() ? r[F.rtype] : ''), f: r => esc([isRent() ? r[F.rtype] : '', r[F.remark]].filter(Boolean).join('；')), c: 'rm'},
+];
+const PER = 100;
+function renderDetail() {
+  const col = COLS.find(c => c.k === sortKey);
+  const rows = [...ROWS].sort((a, b) => { const x = col.v(a), y = col.v(b); return (x > y ? 1 : x < y ? -1 : 0) * sortDir; });
+  $('detailSub').textContent = ROWS.length ? ` 共 ${fmt(ROWS.length)} 筆，點欄名可排序` : '';
+  const pages = Math.ceil(rows.length / PER);
+  page = Math.min(page, Math.max(0, pages - 1));
+  const head = '<thead><tr>' + COLS.map(c => `<th class="${c.l ? 'l' : ''}" data-k="${c.k}">${typeof c.t === 'function' ? c.t() : c.t}${c.k === sortKey ? (sortDir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('') + '</tr></thead>';
+  const body = rows.slice(page * PER, page * PER + PER).map(r => '<tr>' + COLS.map(c => `<td class="${c.c || (c.l ? 'l' : '')}">${c.f(r)}</td>`).join('') + '</tr>').join('');
+  $('detail').innerHTML = head + '<tbody>' + (body || `<tr><td colspan="${COLS.length}" class="empty">沒有資料</td></tr>`) + '</tbody>';
+  $('pager').innerHTML = pages > 1 ? `<button class="btn" data-p="-1" ${page === 0 ? 'disabled' : ''}>上一頁</button><span>第 ${page + 1} / ${pages} 頁</span><button class="btn" data-p="1" ${page >= pages - 1 ? 'disabled' : ''}>下一頁</button>` : '';
+}
+
+function download() {
+  if (!ROWS.length) return;
+  const rent = isRent();
+  const head = ['交易日', '行政區', '地址', '建物型態', '樓層', '總樓層', '屋齡', '坪數(扣車位)', '房數', rent ? '月租金(元)' : '總價(萬,扣車位)', `單價(${unitName()})`, '車位', rent ? '出租型態' : '', '備註'].filter(Boolean);
+  const lines = [head];
+  for (const r of ROWS) lines.push([dateTxt(r[F.date]), DATA.districts[r[F.dist]], r[F.addr], TYPE_NAME[r[F.type]], r[F.floor], r[F.tfloor] || '', r[F.age] >= 0 ? (r[F.age] / 10).toFixed(1) : '',
+    (r[F.ping] / 10).toFixed(1), r[F.rooms] >= 0 ? r[F.rooms] : '', rent ? r[F.price] : Math.round(r[F.price] / 10000), rent ? r[F.unit] : (r[F.unit] / 10000).toFixed(1), ['', '有', '有(未拆價)'][r[F.pk]], ...(rent ? [r[F.rtype] || ''] : []), r[F.remark]]);
+  const csv = '﻿' + lines.map(l => l.map(v => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v).join(',')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
+  a.download = `實價登錄_${DATA.city}_${modeName()}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+// ---------- 事件 ----------
+function bind() {
+  $('city').onchange = () => { S.city = $('city').value; S.dists = null; S.kw = ''; $('kw').value = ''; loadCity(); };
+  $('dists').onclick = e => {
+    const b = e.target.closest('[data-d]'); if (!b) return;
+    const d = b.dataset.d;
+    let cur = S.dists ? [...S.dists] : [...DATA.districts];
+    cur = cur.includes(d) ? cur.filter(x => x !== d) : [...cur, d];
+    S.dists = cur.length === DATA.districts.length ? null : cur;
+    renderDists(); update();
+  };
+  $('distAll').onclick = () => { S.dists = S.dists && S.dists.length === 0 ? null : []; renderDists(); update(); };
+  $('distTable').onclick = e => {
+    const b = e.target.closest('[data-only]'); if (!b) return;
+    S.dists = S.dists && S.dists.length === 1 && S.dists[0] === b.dataset.only ? null : [b.dataset.only];
+    renderDists(); update(); $('title').scrollIntoView({behavior: 'smooth', block: 'center'});
+  };
+  let t; $('kw').oninput = () => { clearTimeout(t); t = setTimeout(() => { S.kw = $('kw').value; update(); }, 250); };
+  $('mode').onclick = e => {
+    const b = e.target.closest('[data-m]'); if (!b) return;
+    const wasRent = isRent(); S.mode = b.dataset.m; syncUI();
+    if (wasRent !== isRent()) loadCity(); else update();
+  };
+  $('types').onclick = e => {
+    const b = e.target.closest('[data-t]'); if (!b) return;
+    const v = +b.dataset.t; S.types = S.types.includes(v) ? S.types.filter(x => x !== v) : [...S.types, v].sort();
+    syncUI(); update();
+  };
+  for (const k of ['d1', 'd2', 'a1', 'a2', 'p1', 'p2', 'rooms']) $(k).onchange = () => { S[k] = $(k).value; update(); };
+  for (const k of ['xTop', 'xSpecial', 'xAddon', 'xPk', 'xRemark', 'xShare']) $(k).onchange = () => { S[k] = $(k).checked; update(); };
+  $('quickD').onclick = e => { const b = e.target.closest('[data-y]'); if (b) setRange(+b.dataset.y); };
+  $('reset').onclick = () => { const c = S.city; S = JSON.parse(JSON.stringify(DEFAULTS)); S.city = c; syncUI(); setRange(1); };
+  $('detail').onclick = e => {
+    const th = e.target.closest('th[data-k]'); if (!th) return;
+    if (sortKey === th.dataset.k) sortDir = -sortDir; else { sortKey = th.dataset.k; sortDir = ['addr', 'type', 'floor'].includes(sortKey) ? 1 : -1; }
+    renderDetail();
+  };
+  $('pager').onclick = e => { const b = e.target.closest('[data-p]'); if (b) { page += +b.dataset.p; renderDetail(); $('detail').closest('.tablewrap').scrollTop = 0; } };
+  $('dl').onclick = download;
+  $('jump').onclick = () => $('title').scrollIntoView({behavior: 'smooth'});
+  new IntersectionObserver(es => { $('jump').style.visibility = es[0].isIntersecting ? 'visible' : 'hidden'; }).observe($('filters'));
+  let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => DATA && renderChart(), 200); });
+}
+
+(async function init() {
+  S = loadState();
+  bind();
+  syncUI();
+  try {
+    INDEX = await fetchJSON('index.json');
+  } catch (e) {
+    $('kpis').innerHTML = '<div class="status warn">資料還沒準備好或下載失敗，請稍後重新整理頁面。</div>';
+    return;
+  }
+  if (typeof DecompressionStream === 'undefined') { $('kpis').innerHTML = '<div class="status warn">這個瀏覽器版本太舊，請更新瀏覽器（或改用 Chrome、Safari 最新版）再開。</div>'; return; }
+  $('upd').textContent = `資料更新：${INDEX.updated}。`;
+  $('city').innerHTML = INDEX.cities.map(c => `<option value="${c.code}">${c.name}</option>`).join('');
+  if (!INDEX.cities.some(c => c.code === S.city)) S.city = INDEX.cities[0].code;
+  $('city').value = S.city;
+  loadCity();
+})();
+</script>
+</body>
+</html>

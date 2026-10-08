@@ -8,6 +8,7 @@
 每筆資料是一個陣列，欄位順序寫在 JSON 的 fields 裡。只用 Python 標準函式庫。
 """
 import csv
+import gzip
 import datetime as dt
 import io
 import json
@@ -165,8 +166,14 @@ class Cols:
         return -1
 
 
-def remark_flags(remark):
+FULL = str.maketrans("０１２３４５６７８９ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺ－～", "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-~")
+
+
+def remark_flags(remark, rtype=""):
     f = 0
+    # 租賃：分租、只租部分範圍或多人共同承租，單價會失真
+    if "分租" in rtype or any(w in remark for w in ("部分範圍", "共同承租", "個別出租")):
+        f |= 8
     if remark:
         f |= 4
         if any(w in remark for w in SPECIAL_WORDS):
@@ -275,7 +282,7 @@ def convert(header, body, kind, dist_index, min_date):
         rooms = g(row, "rooms")
         rec = [
             dist_index[dist], date, t, cat, top, age10, round(ping * 10), round(price_n), unit,
-            remark_flags(remark), pk, g(row, "addr"), floor_txt, tfloor,
+            remark_flags(remark, g(row, "rtype")), pk, g(row, "addr").translate(FULL), floor_txt, tfloor,
             int(rooms) if rooms.isdigit() else -1, remark[:80], g(row, "id"),
         ]
         if kind == "rent":
@@ -351,9 +358,11 @@ def main():
             for r in rows:
                 r.pop(16)  # 編號只拿來去重
             counts[kind] = len(rows)
-            with open(os.path.join(OUT, f"{code.upper()}_{kind}.json"), "w", encoding="utf-8") as fh:
-                json.dump({"city": name, "fields": [f for f in fields if f != "編號"], "districts": dists, "rows": rows},
-                          fh, ensure_ascii=False, separators=(",", ":"))
+            # 先 gzip 壓縮（約小 5 倍），網頁下載後在瀏覽器裡解壓
+            payload = json.dumps({"city": name, "fields": [f for f in fields if f != "編號"], "districts": dists, "rows": rows},
+                                 ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            with open(os.path.join(OUT, f"{code.upper()}_{kind}.json.gz"), "wb") as fh:
+                fh.write(gzip.compress(payload, 9, mtime=0))
         index["cities"].append({"code": code.upper(), "name": name, "sale": counts["sale"], "rent": counts["rent"]})
         log(f"{name}：買賣 {counts['sale']}、租賃 {counts['rent']}")
     with open(os.path.join(OUT, "index.json"), "w", encoding="utf-8") as fh:
