@@ -143,6 +143,7 @@ tr.sel td { background: var(--accent-soft); }
         <button type="button" class="chip" data-t="3">大樓</button>
         <button type="button" class="chip" data-t="4">套房</button>
         <button type="button" class="chip" data-t="5">透天厝</button>
+        <button type="button" class="chip" data-t="6">店面</button>
       </div>
     </div>
     <div class="grp" id="gPkt">
@@ -179,7 +180,7 @@ tr.sel td { background: var(--accent-soft); }
       <div class="lab">排除</div>
       <label id="xTopL"><input type="checkbox" id="xTop" checked><span>頂層<small>移轉樓層等於總樓層</small></span></label>
       <label><input type="checkbox" id="xSpecial" checked><span>特殊交易<small>備註寫到親友、員工、急買急賣、瑕疵、債權債務、法拍、持分等</small></span></label>
-      <label><input type="checkbox" id="xAddon" checked><span>含增建、頂樓加蓋或未登記建物</span></label>
+      <label><input type="checkbox" id="xMezz" checked><span>含夾層<small>備註寫到夾層的交易</small></span></label>
       <label id="xPkL"><input type="checkbox" id="xPk"><span>有車位但車位沒有分開標價<small>這種單價會偏高，勾選就不算進來</small></span></label>
       <label><input type="checkbox" id="xRemark"><span>所有有備註的交易<small>最嚴格，筆數會少很多</small></span></label>
       <label id="xShareL"><input type="checkbox" id="xShare" checked><span>分租、只租部分範圍、多人共同承租<small>只影響租金，這類單價會失真</small></span></label>
@@ -237,10 +238,10 @@ tr.sel td { background: var(--accent-soft); }
 
 <script>
 const DATA_BASE = new URLSearchParams(location.search).get('data') || 'https://raw.githubusercontent.com/angel98625/lvr-map/price-data/';
-const TYPE_NAME = {1: '公寓', 2: '華廈', 3: '大樓', 4: '套房', 5: '透天厝'};
+const TYPE_NAME = {1: '公寓', 2: '華廈', 3: '大樓', 4: '套房', 5: '透天厝', 6: '店面'};
 const F = {dist: 0, date: 1, type: 2, cat: 3, top: 4, age: 5, ping: 6, price: 7, unit: 8, flags: 9, pk: 10, addr: 11, floor: 12, tfloor: 13, rooms: 14, remark: 15, zone: 16, geo: 17, rtype: 18};
 const DEFAULTS = {city: 'A', dists: null, mode: 's2', types: [1, 2, 3], zones: null, pkts: null, d1: '', d2: '', a1: '', a2: '', p1: '', p2: '', rooms: '',
-  xTop: true, xSpecial: true, xAddon: true, xPk: false, xRemark: false, xShare: true, sim: '10', minN: '20'};
+  xTop: true, xSpecial: true, xMezz: true, xPk: false, xRemark: false, xShare: true, sim: '10', minN: '20'};
 const $ = id => document.getElementById(id);
 const cache = {};
 let INDEX = null, S = null, DATA = null, ROWS = [], sortKey = 'date', sortDir = -1, page = 0;
@@ -296,7 +297,7 @@ function syncUI() {
   document.querySelectorAll('#mode button').forEach(b => b.setAttribute('aria-pressed', b.dataset.m === S.mode));
   document.querySelectorAll('#types .chip').forEach(b => b.setAttribute('aria-pressed', S.types.includes(+b.dataset.t)));
   for (const k of ['d1', 'd2', 'a1', 'a2', 'p1', 'p2', 'rooms', 'sim', 'minN']) $(k).value = S[k];
-  for (const k of ['xTop', 'xSpecial', 'xAddon', 'xPk', 'xRemark', 'xShare']) $(k).checked = S[k];
+  for (const k of ['xTop', 'xSpecial', 'xMezz', 'xPk', 'xRemark', 'xShare']) $(k).checked = S[k];
   $('xShareL').style.display = isRent() ? '' : 'none';
   for (const id of ['gPing', 'gRooms', 'xTopL', 'xPkL']) $(id).style.display = isPark() ? 'none' : '';
   $('gPkt').style.display = isPark() ? '' : 'none';
@@ -384,7 +385,7 @@ function filterRows({noDist = false, noSel = false} = {}) {
     if (!park && S.xTop && r[F.top]) return false;
     const fl = r[F.flags];
     if (S.xSpecial && (fl & 1)) return false;
-    if (S.xAddon && (fl & 2)) return false;
+    if (S.xMezz && (fl & 2)) return false;
     if (S.xRemark && (fl & 4)) return false;
     if (!park && S.xPk && r[F.pk] === 2) return false;
     if (rent && S.xShare && (fl & 8)) return false;
@@ -888,7 +889,7 @@ function bind() {
     syncUI(); update();
   };
   for (const k of ['d1', 'd2', 'a1', 'a2', 'p1', 'p2', 'rooms', 'sim', 'minN']) $(k).onchange = () => { S[k] = $(k).value; update(); };
-  for (const k of ['xTop', 'xSpecial', 'xAddon', 'xPk', 'xRemark', 'xShare']) $(k).onchange = () => { S[k] = $(k).checked; update(); };
+  for (const k of ['xTop', 'xSpecial', 'xMezz', 'xPk', 'xRemark', 'xShare']) $(k).onchange = () => { S[k] = $(k).checked; update(); };
   $('quickD').onclick = e => { const b = e.target.closest('[data-y]'); if (b) setRange(+b.dataset.y); };
   $('reset').onclick = () => { const c = S.city, d = S.dists; S = JSON.parse(JSON.stringify(DEFAULTS)); S.city = c; S.dists = d; SEL = null; syncUI(); loadCity(); };
   $('detail').onclick = e => {
