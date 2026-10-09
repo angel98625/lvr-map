@@ -439,7 +439,6 @@ def add_basement(recs, kind, bsm):
             if kind == "sale":
                 r.append("")
             r.append(round(bsm.get(r[16], 0) * 0.3025 * 10))
-    return out
 
 
 def seasons(today, years):
