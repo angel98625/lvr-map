@@ -555,7 +555,7 @@ function cols() {
     {k: 'unit', t: `單價(${unitName()})`, v: r => r[F.unit], f: r => `<b>${unitTxt(r[F.unit])}</b>`},
     {k: 'pk', t: '車位', l: true, v: r => r[F.pk], f: r => ['', '有', '有(未拆價)'][r[F.pk]]});
   if (BSM.length) c.push({k: 'bsm', t: '含地下室', l: true, v: r => r[F.flags] & 16 ? 1 : 0,
-    f: r => r[F.flags] & 16 ? `<span class="warn">不算行情</span><br>地下 ${r[F.bsm] > 0 ? fmt(r[F.bsm] / 10, 1) : '?'} / 總 ${fmt(r[F.ping] / 10, 1)} 坪` : ''});
+    f: r => r[F.flags] & 16 ? `<span class="warn">不算行情</span><br>${r[F.bsm] > 0 ? `地下 ${fmt(r[F.bsm] / 10, 1)} / ` : '地下面積未分開登記，'}總 ${fmt(r[F.ping] / 10, 1)} 坪` : ''});
   c.push({k: 'zone', t: '使用分區', l: true, v: r => zoneOf(r), f: r => esc(zoneOf(r))},
     {k: 'remark', t: '備註', l: true, v: r => r[F.remark] || (rent ? r[F.rtype] : ''), f: r => esc([rent ? r[F.rtype] : '', r[F.remark]].filter(Boolean).join('；')), c: 'rm'});
   return c;
