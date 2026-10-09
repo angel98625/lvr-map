@@ -427,7 +427,8 @@ def basement_areas(header, body):
     for row in body:
         if len(row) <= max(i_id, i_area, i_floor):
             continue
-        if "地下" in row[i_floor]:
+        # 只算整列都在地下的（同一列寫「一層，地下層」就分不出地下佔多少，不算）
+        if "地下" in row[i_floor] and not parse_floors(row[i_floor])[0]:
             out[row[i_id].strip()] = out.get(row[i_id].strip(), 0) + num(row[i_area])
     return out
 
