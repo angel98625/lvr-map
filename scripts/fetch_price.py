@@ -447,6 +447,8 @@ def main():
                     for r in recs[:3]:
                         log(f"  [{kind}] 整理後：{r}")
                     from collections import Counter
+                    from collections import Counter
+                    log(f"  [{kind}] 原始型態：{Counter(r[header.index('建物型態')] for r in body if len(r) > 12).most_common(20)}；交易標的：{Counter(r[1] for r in body if len(r) > 2).most_common(10)}")
                     log(f"  [{kind}] 型態×樓別：{sorted(Counter((r[2], r[3]) for r in recs).items())}")
                     log(f"  [{kind}] 頂層 {sum(r[4] for r in recs)}、特殊 {sum(r[9] & 1 for r in recs)}、夾層 {sum(r[9] & 2 > 0 for r in recs)}、有備註 {sum(r[9] & 4 > 0 for r in recs)}、車位未拆價 {sum(r[10] == 2 for r in recs)}")
                     log(f"  [{kind}] 備註樣本：{[r[15] for r in recs if r[15]][:25]}")
