@@ -438,7 +438,10 @@ def add_basement(recs, kind, bsm):
         if r[9] & 16:
             if kind == "sale":
                 r.append("")
-            r.append(round(bsm.get(r[16], 0) * 0.3025 * 10))
+            area = round(bsm.get(r[16], 0) * 0.3025 * 10)
+            if not area and not parse_floors(r[12])[0]:
+                area = r[6]  # 只有地下層：整筆都是地下室（租賃的建物明細常沒有填分層）
+            r.append(area)
 
 
 def seasons(today, years):
