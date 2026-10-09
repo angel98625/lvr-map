@@ -495,8 +495,6 @@ def main():
                         log(f"  [{kind}] 原始：{r}")
                     for r in recs[:3]:
                         log(f"  [{kind}] 整理後：{r}")
-                    from collections import Counter
-                    from collections import Counter
                     log(f"  [{kind}] 原始型態：{Counter(r[header.index('建物型態')] for r in body if len(r) > 12).most_common(20)}；交易標的：{Counter(r[1] for r in body if len(r) > 2).most_common(10)}")
                     log(f"  [{kind}] 型態×樓別：{sorted(Counter((r[2], r[3]) for r in recs).items())}")
                     log(f"  [{kind}] 頂層 {sum(r[4] for r in recs)}、特殊 {sum(r[9] & 1 for r in recs)}、夾層 {sum(r[9] & 2 > 0 for r in recs)}、有備註 {sum(r[9] & 4 > 0 for r in recs)}、車位未拆價 {sum(r[10] == 2 for r in recs)}")
@@ -513,7 +511,6 @@ def main():
                     log(f"  [park] 原始：{r}")
                 for r in precs[:3]:
                     log(f"  [park] 整理後：{r}")
-                from collections import Counter
                 log(f"  [park] 類別：{sorted(Counter(r[10] for r in precs).items())}；使用分區（買賣）：{Counter(b['rec'][17] for b in bases.values()).most_common(15)}")
                 log(f"  [geo] 樣本：{[(b['rec'][11], b['rec'][18]) for b in list(bases.values())[:15]]}")
                 log(f"  [geo] 沒有座標組：{[b['rec'][11] for b in bases.values() if not b['rec'][18]][:15]}")
