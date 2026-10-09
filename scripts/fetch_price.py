@@ -30,15 +30,15 @@ CITIES = {
     "v": "臺東縣", "x": "澎湖縣", "w": "金門縣", "z": "連江縣",
 }
 
-# 建物型態 → 代碼（其餘型態如店面、辦公、工廠不收）
-TYPES = [("公寓", 1), ("華廈", 2), ("住宅大樓", 3), ("套房", 4), ("透天厝", 5)]
+# 建物型態 → 代碼（其餘型態如辦公、工廠不收）
+TYPES = [("公寓", 1), ("華廈", 2), ("住宅大樓", 3), ("套房", 4), ("透天厝", 5), ("店面", 6)]
 
 SPECIAL_WORDS = [
     "親友", "員工", "特殊關係", "二親等", "親屬", "共有人", "急買急賣", "急售", "急買", "瑕疵", "凶宅", "非自然死亡",
     "政府機關", "法拍", "拍賣", "債權", "債務", "抵債", "地上權", "畸零地", "調處", "公共設施保留地",
     "民情風俗", "交換", "合併", "持分", "受贈", "贈與", "租約", "含租約", "附帶租約", "道路用地", "法院",
 ]
-ADDON_WORDS = ["增建", "未登記建物", "頂樓加蓋", "加蓋"]
+MEZZ_WORDS = ["夾層"]  # 備註旗標 2：含夾層
 
 CN = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
 
@@ -178,7 +178,7 @@ def remark_flags(remark, rtype=""):
         f |= 4
         if any(w in remark for w in SPECIAL_WORDS):
             f |= 1
-        if any(w in remark for w in ADDON_WORDS):
+        if any(w in remark for w in MEZZ_WORDS):
             f |= 2
     return f
 
@@ -447,8 +447,10 @@ def main():
                     for r in recs[:3]:
                         log(f"  [{kind}] 整理後：{r}")
                     from collections import Counter
+                    from collections import Counter
+                    log(f"  [{kind}] 原始型態：{Counter(r[header.index('建物型態')] for r in body if len(r) > 12).most_common(20)}；交易標的：{Counter(r[1] for r in body if len(r) > 2).most_common(10)}")
                     log(f"  [{kind}] 型態×樓別：{sorted(Counter((r[2], r[3]) for r in recs).items())}")
-                    log(f"  [{kind}] 頂層 {sum(r[4] for r in recs)}、特殊 {sum(r[9] & 1 for r in recs)}、增建 {sum(r[9] & 2 > 0 for r in recs)}、有備註 {sum(r[9] & 4 > 0 for r in recs)}、車位未拆價 {sum(r[10] == 2 for r in recs)}")
+                    log(f"  [{kind}] 頂層 {sum(r[4] for r in recs)}、特殊 {sum(r[9] & 1 for r in recs)}、夾層 {sum(r[9] & 2 > 0 for r in recs)}、有備註 {sum(r[9] & 4 > 0 for r in recs)}、車位未拆價 {sum(r[10] == 2 for r in recs)}")
                     log(f"  [{kind}] 備註樣本：{[r[15] for r in recs if r[15]][:25]}")
                 store = data[code][kind]
                 for r in recs:

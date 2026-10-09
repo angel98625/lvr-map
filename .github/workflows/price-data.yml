@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
   push:
     branches: ["claude/**"]   # 開發中的版本：資料放到 price-data-dev，不影響正式網站
-    paths: [scripts/fetch_price.py, .github/workflows/price-data.yml]
+    paths: [scripts/fetch_price.py, scripts/build_bounds.py, .github/workflows/price-data.yml]
 
 permissions:
   contents: write
@@ -26,6 +26,8 @@ jobs:
           python-version: "3.12"
       - name: 下載並整理實價登錄資料
         run: OUT=out python scripts/fetch_price.py
+      - name: 行政區界線（讓行情分區地圖塗滿整個行政區）
+        run: pip install -q pyshp && OUT=out python scripts/build_bounds.py
       - name: 發布到 price-data 分支（只保留最新一份，不讓網站越來越肥）
         run: |
           cd out
