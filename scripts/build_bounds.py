@@ -13,6 +13,7 @@ import zipfile
 OUT = os.environ.get("OUT", "out")
 # 先試 npm 套件 taiwan-atlas（內政部界線轉成的 TopoJSON），再試內政部原始 shapefile
 TOPO_URLS = [
+    "https://registry.npmjs.org/taiwan-atlas/-/taiwan-atlas-2021.9.20.tgz",
     "https://cdn.jsdelivr.net/npm/taiwan-atlas/towns-10t.json",
     "https://unpkg.com/taiwan-atlas/towns-10t.json",
 ]
@@ -32,6 +33,9 @@ def simplify(pts, tol):
     """Douglas–Peucker（非遞迴）。"""
     if len(pts) < 4:
         return pts
+    if pts[0] == pts[-1]:  # 封閉的環：頭尾同一點，先從離起點最遠的點切成兩段
+        far = max(range(len(pts)), key=lambda i: (pts[i][0] - pts[0][0]) ** 2 + (pts[i][1] - pts[0][1]) ** 2)
+        return simplify(pts[: far + 1], tol)[:-1] + simplify(pts[far:], tol)
     keep = [False] * len(pts)
     keep[0] = keep[-1] = True
     stack = [(0, len(pts) - 1)]
@@ -59,9 +63,10 @@ def fetch(url):
 
 
 def pick_key(props, words):
-    for k in props:
-        if any(w in k.upper() for w in words):
-            return k
+    for w in words:  # 依 words 的順序找，避免 TOWNID 被當成 TOWNNAME
+        for k in props:
+            if w in k.upper():
+                return k
     return None
 
 
@@ -93,7 +98,7 @@ def from_topo(topo):
             print("圖層", name, len(geoms), "個，欄位：", geoms[0].get("properties"))
         for g in geoms:
             pr = g.get("properties") or {}
-            ck, tk = pick_key(pr, ["COUNTY"]), pick_key(pr, ["TOWNNAME", "TOWN_NAME", "TOWN"])
+            ck, tk = pick_key(pr, ["COUNTYNAME", "COUNTY"]), pick_key(pr, ["TOWNNAME", "TOWN_NAME", "TOWN"])
             if not ck or not tk:
                 continue
             polys = [g["arcs"]] if g["type"] == "Polygon" else g["arcs"] if g["type"] == "MultiPolygon" else []
@@ -123,7 +128,12 @@ def write(shapes):
 def main():
     for url in TOPO_URLS:
         try:
-            if write(from_topo(json.loads(fetch(url)))):
+            raw = fetch(url)
+            if url.endswith(".tgz"):
+                import tarfile
+                with tarfile.open(fileobj=io.BytesIO(raw)) as tf:
+                    raw = tf.extractfile("package/towns-10t.json").read()
+            if write(from_topo(json.loads(raw))):
                 return
             print("沒有可用的縣市／行政區欄位", url)
         except Exception as e:  # noqa: BLE001
