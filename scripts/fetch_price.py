@@ -18,6 +18,7 @@ import sys
 import time
 import urllib.request
 import zipfile
+from collections import Counter
 
 BASE = "https://plvr.land.moi.gov.tw"
 OUT = os.environ.get("OUT", "out")
@@ -169,8 +170,17 @@ class Cols:
 FULL = str.maketrans("０１２３４５６７８９ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺ－～", "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-~")
 
 
-def remark_flags(remark, rtype=""):
+SOCIAL_WORDS = ["社會住宅", "社宅"]
+
+
+def remark_flags(remark, rtype="", service="", floor_txt=""):
     f = 0
+    # 16：移轉／租賃層次含地下層（一樓連地下室一起賣或租），單價會失真
+    if "地下" in floor_txt:
+        f |= 16
+    # 32：社會住宅包租代管，且備註沒寫到市價（租金通常打折）
+    if any(w in service or w in remark for w in SOCIAL_WORDS) and "市價" not in remark:
+        f |= 32
     # 租賃：分租、只租部分範圍或多人共同承租，單價會失真
     if "分租" in rtype or any(w in remark for w in ("部分範圍", "共同承租", "個別出租")):
         f |= 8
@@ -293,7 +303,7 @@ def park_rec(rec, ptype, price, area_m2, floor):
 
 
 SALE_FIELDS = ["區", "日期", "型態", "樓別", "頂層", "屋齡", "坪數", "總價", "單價", "備註旗標", "車位", "地址", "移轉層次", "總樓層", "房", "備註", "編號", "使用分區", "座標組"]
-RENT_FIELDS = SALE_FIELDS + ["出租型態"]
+RENT_FIELDS = SALE_FIELDS + ["出租型態", "地下室坪數"]
 PARK_FIELDS = ["區", "日期", "型態", "樓別", "頂層", "屋齡", "車位坪數", "車位價格", "車位價格", "備註旗標", "車位類別", "地址", "車位樓層", "總樓層", "房", "備註", "編號", "使用分區", "座標組"]
 
 
@@ -320,6 +330,7 @@ def convert(header, body, kind, dist_index, min_date, bases=None):
         "zone_u": c.idx("都市土地使用分區"),
         "zone_n": c.idx("非都市土地使用分區"),
         "deal": c.idx("交易筆棟數", "租賃筆棟數"),
+        "service": c.idx("租賃住宅服務"),
     }
     missing = [k for k in ("dist", "date", "floor", "btype", "area", "price") if I[k] < 0]
     if missing:
@@ -388,7 +399,7 @@ def convert(header, body, kind, dist_index, min_date, bases=None):
         rooms = g(row, "rooms")
         rec = [
             dist_index[dist], date, t, cat, top, age10, round(ping * 10), round(price_n), unit,
-            remark_flags(remark, g(row, "rtype")), pk, g(row, "addr").translate(FULL), floor_txt, tfloor,
+            remark_flags(remark, g(row, "rtype"), g(row, "service"), floor_txt), pk, g(row, "addr").translate(FULL), floor_txt, tfloor,
             int(rooms) if rooms.isdigit() else -1, remark[:80], g(row, "id"),
             zone_name(g(row, "zone_u"), g(row, "zone_n")), geo_key(rec_addr := g(row, "addr").translate(FULL), dist),
         ]
@@ -399,6 +410,39 @@ def convert(header, body, kind, dist_index, min_date, bases=None):
             rec.append(g(row, "rtype"))
         out.append(rec)
     return out
+
+
+def basement_areas(header, body):
+    """建物明細（_build.csv）→ {編號: 地下層面積平方公尺}。"""
+    if not header:
+        return {}
+    c = Cols(header)
+    i_id = c.idx("編號")
+    i_area = next((i for i, h in enumerate(header) if "面積" in h), -1)
+    i_floor = next((i for i, h in enumerate(header) if "分層" in h or "層次" in h or "樓層" in h), -1)
+    if min(i_id, i_area, i_floor) < 0:
+        log(f"  建物明細找不到欄位：{header}")
+        return {}
+    out = {}
+    for row in body:
+        if len(row) <= max(i_id, i_area, i_floor):
+            continue
+        # 只算整列都在地下的（同一列寫「一層，地下層」就分不出地下佔多少，不算）
+        if "地下" in row[i_floor] and not parse_floors(row[i_floor])[0]:
+            out[row[i_id].strip()] = out.get(row[i_id].strip(), 0) + num(row[i_area])
+    return out
+
+
+def add_basement(recs, kind, bsm):
+    """含地下層的交易，在最後補上地下室坪數×10（買賣先補一個空的出租型態，欄位位置才一致）。"""
+    for r in recs:
+        if r[9] & 16:
+            if kind == "sale":
+                r.append("")
+            area = round(bsm.get(r[16], 0) * 0.3025 * 10)
+            if not area and not parse_floors(r[12])[0]:
+                area = r[6]  # 只有地下層：整筆都是地下室（租賃的建物明細常沒有填分層）
+            r.append(area)
 
 
 def seasons(today, years):
@@ -440,14 +484,21 @@ def main():
                 if not header:
                     continue
                 recs = convert(header, body, kind, data[code]["dist"], min_date, bases if kind == "sale" else None)
+                bh, bb = read_csv(zf, f"{code}_lvr_land_{suffix}_build.csv")
+                bsm = basement_areas(bh, bb)
+                add_basement(recs, kind, bsm)
+                if code == "a" and label == "本期":
+                    log(f"  [{kind}] 建物明細欄名：{bh}")
+                    for r in bb[:3]:
+                        log(f"  [{kind}] 建物明細原始：{r}")
+                    log(f"  [{kind}] 含地下層 {sum(r[9] & 16 > 0 for r in recs)} 筆，有地下面積 {sum(1 for r in recs if r[9] & 16 and r[-1])}；樣本：{[(r[12], r[6], r[-1]) for r in recs if r[9] & 16][:10]}")
+                    log(f"  [{kind}] 社宅未寫市價 {sum(r[9] & 32 > 0 for r in recs)} 筆；備註樣本：{[r[15] for r in recs if r[9] & 32][:10]}；服務欄：{Counter(r[header.index('租賃住宅服務')] for r in body if '租賃住宅服務' in header and len(r) > header.index('租賃住宅服務')).most_common(8)}")
                 if code == "a" and label == "本期":  # 方便在執行紀錄裡檢查欄位對不對
                     log(f"  [{kind}] 欄名：{header}")
                     for r in body[:2]:
                         log(f"  [{kind}] 原始：{r}")
                     for r in recs[:3]:
                         log(f"  [{kind}] 整理後：{r}")
-                    from collections import Counter
-                    from collections import Counter
                     log(f"  [{kind}] 原始型態：{Counter(r[header.index('建物型態')] for r in body if len(r) > 12).most_common(20)}；交易標的：{Counter(r[1] for r in body if len(r) > 2).most_common(10)}")
                     log(f"  [{kind}] 型態×樓別：{sorted(Counter((r[2], r[3]) for r in recs).items())}")
                     log(f"  [{kind}] 頂層 {sum(r[4] for r in recs)}、特殊 {sum(r[9] & 1 for r in recs)}、夾層 {sum(r[9] & 2 > 0 for r in recs)}、有備註 {sum(r[9] & 4 > 0 for r in recs)}、車位未拆價 {sum(r[10] == 2 for r in recs)}")
@@ -464,7 +515,6 @@ def main():
                     log(f"  [park] 原始：{r}")
                 for r in precs[:3]:
                     log(f"  [park] 整理後：{r}")
-                from collections import Counter
                 log(f"  [park] 類別：{sorted(Counter(r[10] for r in precs).items())}；使用分區（買賣）：{Counter(b['rec'][17] for b in bases.values()).most_common(15)}")
                 log(f"  [geo] 樣本：{[(b['rec'][11], b['rec'][18]) for b in list(bases.values())[:15]]}")
                 log(f"  [geo] 沒有座標組：{[b['rec'][11] for b in bases.values() if not b['rec'][18]][:15]}")

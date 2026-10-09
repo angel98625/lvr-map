@@ -184,6 +184,7 @@ tr.sel td { background: var(--accent-soft); }
       <label id="xPkL"><input type="checkbox" id="xPk"><span>有車位但車位沒有分開標價<small>這種單價會偏高，勾選就不算進來</small></span></label>
       <label><input type="checkbox" id="xRemark"><span>所有有備註的交易<small>最嚴格，筆數會少很多</small></span></label>
       <label id="xShareL"><input type="checkbox" id="xShare" checked><span>分租、只租部分範圍、多人共同承租<small>只影響租金，這類單價會失真</small></span></label>
+      <label id="xSocialL"><input type="checkbox" id="xSocial" checked><span>社宅（備註沒寫市價）<small>社會住宅包租代管，備註沒有寫到依市價出租的</small></span></label>
     </div>
     <button class="btn" type="button" id="reset">回到預設條件</button>
   </aside>
@@ -239,12 +240,12 @@ tr.sel td { background: var(--accent-soft); }
 <script>
 const DATA_BASE = new URLSearchParams(location.search).get('data') || 'https://raw.githubusercontent.com/angel98625/lvr-map/price-data/';
 const TYPE_NAME = {1: '公寓', 2: '華廈', 3: '大樓', 4: '套房', 5: '透天厝', 6: '店面'};
-const F = {dist: 0, date: 1, type: 2, cat: 3, top: 4, age: 5, ping: 6, price: 7, unit: 8, flags: 9, pk: 10, addr: 11, floor: 12, tfloor: 13, rooms: 14, remark: 15, zone: 16, geo: 17, rtype: 18};
+const F = {dist: 0, date: 1, type: 2, cat: 3, top: 4, age: 5, ping: 6, price: 7, unit: 8, flags: 9, pk: 10, addr: 11, floor: 12, tfloor: 13, rooms: 14, remark: 15, zone: 16, geo: 17, rtype: 18, bsm: 19};
 const DEFAULTS = {city: 'A', dists: null, mode: 's2', types: [1, 2, 3], zones: null, pkts: null, d1: '', d2: '', a1: '', a2: '', p1: '', p2: '', rooms: '',
-  xTop: true, xSpecial: true, xMezz: true, xPk: false, xRemark: false, xShare: true, sim: '10', minN: '20'};
+  xTop: true, xSpecial: true, xMezz: true, xPk: false, xRemark: false, xShare: true, xSocial: true, sim: '10', minN: '20'};
 const $ = id => document.getElementById(id);
 const cache = {};
-let INDEX = null, S = null, DATA = null, ROWS = [], sortKey = 'date', sortDir = -1, page = 0;
+let INDEX = null, S = null, DATA = null, ROWS = [], BSM = [], sortKey = 'date', sortDir = -1, page = 0;
 let SEL = null; // 選取的行情分區：{label, keys: Set(地址組查詢字串)}
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
@@ -297,8 +298,9 @@ function syncUI() {
   document.querySelectorAll('#mode button').forEach(b => b.setAttribute('aria-pressed', b.dataset.m === S.mode));
   document.querySelectorAll('#types .chip').forEach(b => b.setAttribute('aria-pressed', S.types.includes(+b.dataset.t)));
   for (const k of ['d1', 'd2', 'a1', 'a2', 'p1', 'p2', 'rooms', 'sim', 'minN']) $(k).value = S[k];
-  for (const k of ['xTop', 'xSpecial', 'xMezz', 'xPk', 'xRemark', 'xShare']) $(k).checked = S[k];
+  for (const k of ['xTop', 'xSpecial', 'xMezz', 'xPk', 'xRemark', 'xShare', 'xSocial']) $(k).checked = S[k];
   $('xShareL').style.display = isRent() ? '' : 'none';
+  $('xSocialL').style.display = isRent() ? '' : 'none';
   for (const id of ['gPing', 'gRooms', 'xTopL', 'xPkL']) $(id).style.display = isPark() ? 'none' : '';
   $('gPkt').style.display = isPark() ? '' : 'none';
   document.querySelector('#types [data-t="6"]').style.display = isRent() ? '' : 'none'; // 買賣資料沒有店面這個型態（店面算在公寓／華廈／大樓裡）
@@ -359,7 +361,8 @@ function setRange(years, doUpdate = true) {
 }
 
 // ---------- 篩選 ----------
-function filterRows({noDist = false, noSel = false} = {}) {
+// 含地下室（移轉／租賃層次有地下層）的交易一律不算行情，但另外列在明細裡（onlyBsm）
+function filterRows({noDist = false, noSel = false, onlyBsm = false} = {}) {
   const rent = isRent(), park = isPark(), cat = +S.mode[1];
   const types = new Set(S.types);
   const dset = !noDist && S.dists && S.dists.length ? new Set(S.dists.map(d => DATA.districts.indexOf(d))) : null;
@@ -390,6 +393,9 @@ function filterRows({noDist = false, noSel = false} = {}) {
     if (S.xRemark && (fl & 4)) return false;
     if (!park && S.xPk && r[F.pk] === 2) return false;
     if (rent && S.xShare && (fl & 8)) return false;
+    if (rent && S.xSocial && (fl & 32)) return false;
+    if (!park && (onlyBsm ? !(fl & 16) : (fl & 16))) return false;
+    if (park && onlyBsm) return false;
     if (sel && !sel.has(geoQuery(r))) return false;
     return true;
   });
@@ -399,6 +405,7 @@ function update(keepZones = false) {
   if (!DATA) return;
   saveState();
   ROWS = filterRows();
+  BSM = isPark() ? [] : filterRows({onlyBsm: true});
   page = 0;
   renderSummary();
   renderChart();
@@ -547,6 +554,8 @@ function cols() {
     {k: 'price', t: rent ? '月租金(元)' : '總價(萬)', v: r => r[F.price], f: r => rent ? fmt(r[F.price]) : fmt(r[F.price] / 10000)},
     {k: 'unit', t: `單價(${unitName()})`, v: r => r[F.unit], f: r => `<b>${unitTxt(r[F.unit])}</b>`},
     {k: 'pk', t: '車位', l: true, v: r => r[F.pk], f: r => ['', '有', '有(未拆價)'][r[F.pk]]});
+  if (BSM.length) c.push({k: 'bsm', t: '含地下室', l: true, v: r => r[F.flags] & 16 ? 1 : 0,
+    f: r => r[F.flags] & 16 ? `<span class="warn">不算行情</span><br>${r[F.bsm] > 0 ? `地下 ${fmt(r[F.bsm] / 10, 1)} / ` : '地下面積未分開登記，'}總 ${fmt(r[F.ping] / 10, 1)} 坪` : ''});
   c.push({k: 'zone', t: '使用分區', l: true, v: r => zoneOf(r), f: r => esc(zoneOf(r))},
     {k: 'remark', t: '備註', l: true, v: r => r[F.remark] || (rent ? r[F.rtype] : ''), f: r => esc([rent ? r[F.rtype] : '', r[F.remark]].filter(Boolean).join('；')), c: 'rm'});
   return c;
@@ -556,8 +565,8 @@ function renderDetail() {
   const COLS = cols();
   let col = COLS.find(c => c.k === sortKey);
   if (!col) { sortKey = 'date'; sortDir = -1; col = COLS[0]; }
-  const rows = [...ROWS].sort((a, b) => { const x = col.v(a), y = col.v(b); return (x > y ? 1 : x < y ? -1 : 0) * sortDir; });
-  $('detailSub').textContent = ROWS.length ? ` 共 ${fmt(ROWS.length)} ${isPark() ? '個車位' : '筆'}，點欄名可排序` : '';
+  const rows = [...ROWS, ...BSM].sort((a, b) => { const x = col.v(a), y = col.v(b); return (x > y ? 1 : x < y ? -1 : 0) * sortDir; });
+  $('detailSub').textContent = rows.length ? ` 共 ${fmt(ROWS.length)} ${isPark() ? '個車位' : '筆'}${BSM.length ? `，另有 ${fmt(BSM.length)} 筆含地下室（列在明細，不算行情）` : ''}，點欄名可排序` : '';
   const pages = Math.ceil(rows.length / PER);
   page = Math.min(page, Math.max(0, pages - 1));
   const head = '<thead><tr>' + COLS.map(c => `<th class="${c.l ? 'l' : ''}" data-k="${c.k}">${c.t}${c.k === sortKey ? (sortDir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('') + '</tr></thead>';
@@ -567,7 +576,7 @@ function renderDetail() {
 }
 
 function download() {
-  if (!ROWS.length) return;
+  if (!ROWS.length && !BSM.length) return;
   const rent = isRent(), park = isPark();
   let head, line;
   if (park) {
@@ -575,11 +584,11 @@ function download() {
     line = r => [dateTxt(r[F.date]), DATA.districts[r[F.dist]], r[F.addr], TYPE_NAME[r[F.type]], (DATA.pkTypes || [])[r[F.pk]] || '', r[F.floor], r[F.age] >= 0 ? (r[F.age] / 10).toFixed(1) : '',
       r[F.ping] > 0 ? (r[F.ping] / 10).toFixed(1) : '', (r[F.unit] / 10000).toFixed(1), zoneOf(r), r[F.remark]];
   } else {
-    head = ['交易日', '行政區', '地址', '建物型態', '樓層', '總樓層', '屋齡', '坪數(扣車位)', '房數', rent ? '月租金(元)' : '總價(萬,扣車位)', `單價(${unitName()})`, '車位', '使用分區', ...(rent ? ['出租型態'] : []), '備註'];
+    head = ['交易日', '行政區', '地址', '建物型態', '樓層', '總樓層', '屋齡', '坪數(扣車位)', '房數', rent ? '月租金(元)' : '總價(萬,扣車位)', `單價(${unitName()})`, '車位', '使用分區', ...(rent ? ['出租型態'] : []), '含地下室', '地下室坪數', '備註'];
     line = r => [dateTxt(r[F.date]), DATA.districts[r[F.dist]], r[F.addr], TYPE_NAME[r[F.type]], r[F.floor], r[F.tfloor] || '', r[F.age] >= 0 ? (r[F.age] / 10).toFixed(1) : '',
-      (r[F.ping] / 10).toFixed(1), r[F.rooms] >= 0 ? r[F.rooms] : '', rent ? r[F.price] : Math.round(r[F.price] / 10000), rent ? r[F.unit] : (r[F.unit] / 10000).toFixed(1), ['', '有', '有(未拆價)'][r[F.pk]], zoneOf(r), ...(rent ? [r[F.rtype] || ''] : []), r[F.remark]];
+      (r[F.ping] / 10).toFixed(1), r[F.rooms] >= 0 ? r[F.rooms] : '', rent ? r[F.price] : Math.round(r[F.price] / 10000), rent ? r[F.unit] : (r[F.unit] / 10000).toFixed(1), ['', '有', '有(未拆價)'][r[F.pk]], zoneOf(r), ...(rent ? [r[F.rtype] || ''] : []), r[F.flags] & 16 ? '是（不算行情）' : '', r[F.flags] & 16 && r[F.bsm] > 0 ? (r[F.bsm] / 10).toFixed(1) : '', r[F.remark]];
   }
-  const lines = [head, ...ROWS.map(line)];
+  const lines = [head, ...[...ROWS, ...BSM].map(line)];
   const csv = '﻿' + lines.map(l => l.map(v => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v).join(',')).join('\r\n');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
@@ -929,7 +938,7 @@ function bind() {
     syncUI(); update();
   };
   for (const k of ['d1', 'd2', 'a1', 'a2', 'p1', 'p2', 'rooms', 'sim', 'minN']) $(k).onchange = () => { S[k] = $(k).value; update(); };
-  for (const k of ['xTop', 'xSpecial', 'xMezz', 'xPk', 'xRemark', 'xShare']) $(k).onchange = () => { S[k] = $(k).checked; update(); };
+  for (const k of ['xTop', 'xSpecial', 'xMezz', 'xPk', 'xRemark', 'xShare', 'xSocial']) $(k).onchange = () => { S[k] = $(k).checked; update(); };
   $('quickD').onclick = e => { const b = e.target.closest('[data-y]'); if (b) setRange(+b.dataset.y); };
   $('reset').onclick = () => { const c = S.city, d = S.dists; S = JSON.parse(JSON.stringify(DEFAULTS)); S.city = c; S.dists = d; SEL = null; syncUI(); loadCity(); };
   $('detail').onclick = e => {
